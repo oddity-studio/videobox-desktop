@@ -1,0 +1,47 @@
+{
+  "name": "videobox",
+  "version": "1.0.0",
+  "description": "Audeobox videobox — programmatic seasonal/promo video creation",
+  "main": "index.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "next typegen && tsc --noEmit",
+    "render-server": "node server/server.mjs",
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts HelloWorld out/video.mp4"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:35335/git/oddity-studio/videobox"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@remotion/bundler": "4.0.438",
+    "@remotion/cli": "4.0.438",
+    "@remotion/google-fonts": "4.0.438",
+    "@remotion/lottie": "4.0.438",
+    "@remotion/player": "4.0.438",
+    "@remotion/renderer": "4.0.438",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "archiver": "^7.0.1",
+    "express": "^4.21.2",
+    "html-to-image": "^1.11.13",
+    "html2canvas": "^1.4.1",
+    "jszip": "^3.10.1",
+    "lottie-web": "^5.13.0",
+    "mp4-muxer": "^5.2.2",
+    "next": "16.2.1",
+    "overlayscrollbars": "^2.16.0",
+    "overlayscrollbars-react": "^0.5.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "remotion": "4.0.438",
+    "typescript": "5.9.3",
+    "zod": "4.3.6"
+  }
+}

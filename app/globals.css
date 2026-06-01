@@ -1,0 +1,261 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #0a0a0a;
+  color: #e2e8f0;
+  font-family: system-ui, sans-serif;
+  /* No scrollbar-width here — when set, Chrome uses its native
+     thin scrollbar which ALWAYS includes step arrows on Windows.
+     Leaving it unset lets ::-webkit-scrollbar drive Chrome's look
+     so we can hide the arrows and pick a custom thin width.
+     scrollbar-color still works for Firefox styling. */
+  scrollbar-color: #1e293b transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  /* Darker thumb so the scrollbar fades into the dark panel
+     unless actively scrolled / hovered. */
+  background-color: #1e293b;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: #334155;
+}
+/* Hide the up/down step arrow buttons that some platforms add. */
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Hide scrollbars entirely on mobile — page is short enough and the
+   thin track adds clutter on small screens. Firefox honors
+   scrollbar-width: none; WebKit honors the ::-webkit-scrollbar rule. */
+@media (max-width: 768px) {
+  html,
+  body {
+    scrollbar-width: none;
+  }
+  ::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}
+
+.dock-body-no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.dock-body-no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* overlayscrollbars theme overrides — used by the scene list scrollbar.
+   Custom CSS variables override the os-theme-dark defaults so the thumb
+   matches our dark panel palette and the track is invisible. */
+.os-theme-dark {
+  --os-size: 4px;
+  --os-padding-perpendicular: 2px;
+  --os-padding-axis: 2px;
+  --os-handle-border-radius: 2px;
+  /* Thumb colors. Note: os-theme-dark applies an internal opacity to
+     the handle background by default which makes any chosen colour
+     look darker — overridden below with !important on .os-handle. */
+  --os-handle-bg: #8aa7d8;
+  --os-handle-bg-hover: #a4bde5;
+  --os-handle-bg-active: #c0d3ef;
+  --os-track-bg: transparent;
+  --os-track-bg-hover: transparent;
+  --os-track-bg-active: transparent;
+  /* Cap the thumb length so it stays compact and scrolls faster (it
+     would otherwise stretch to viewport/content ratio). */
+  --os-handle-max-size: 60px;
+}
+/* Force full opacity on the handle — os-theme-dark adds a built-in
+   0.55-ish alpha to the handle background which fights with our custom
+   bright colours and makes them read as dark/dim. */
+.os-theme-dark .os-scrollbar-handle {
+  background: var(--os-handle-bg) !important;
+  opacity: 1 !important;
+}
+.os-theme-dark .os-scrollbar-handle:hover {
+  background: var(--os-handle-bg-hover) !important;
+}
+.os-theme-dark .os-scrollbar-handle:active,
+.os-theme-dark .os-scrollbar-handle.os-active {
+  background: var(--os-handle-bg-active) !important;
+}
+/* Scrollbar sits at the host's natural right edge; horizontal offset
+   is handled by the host's paddingRight (set in Editor.tsx). */
+
+/* Hover glow for the timeline property tiles (Scene / Sound / Video).
+   Applied via className because inline styles can't carry :hover. */
+.timeline-tile {
+  box-shadow: 0 0 0 0 rgba(96, 165, 250, 0);
+  transition: background 0.15s, box-shadow 0.2s, transform 0.05s;
+}
+.timeline-tile:hover {
+  background: #334155 !important;
+  box-shadow: 0 0 12px rgba(96, 165, 250, 0.55);
+}
+.timeline-tile:active {
+  transform: translateY(1px);
+}
+
+/* Each row gets its own stacking context (z-index:0) so the
+   highlight pseudo (z-index:-1) renders behind children but above
+   the panel background. When a Prizes-grid <details> dropdown is
+   open, lift that row above every sibling so the popup isn't hidden
+   by rows below it in the list. */
+.scene-list-row {
+  z-index: 0;
+}
+.scene-list-row:has(details[open]) {
+  z-index: 100;
+}
+
+/* Row highlight (hover + selected) is drawn by a ::before pseudo that
+   sits BEHIND the row's children but inside the row's stacking
+   context (sceneRow has z-index:0). `inset: 3px 0 0 0` drops the top
+   edge 3 px below the divider line above so the highlight doesn't
+   crowd the separator. Rounded corners (4 px) restore the soft card
+   look. */
+.scene-list-row::before {
+  content: "";
+  position: absolute;
+  /* 3px gap at the top so the highlight doesn't crowd the divider line
+     above, and 10px at the bottom so it stops well short of the next
+     row's divider. */
+  inset: 3px 0 10px 0;
+  border-radius: 4px;
+  background: transparent;
+  pointer-events: none;
+  z-index: -1;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.scene-list-row:hover::before {
+  background: rgba(59, 130, 246, 0.07);
+}
+.scene-list-row.is-selected::before {
+  background: rgba(59, 130, 246, 0.15);
+  box-shadow: inset 2px 0 0 #3b82f6;
+}
+/* When a row is selected, lift the inputs / selects / buttons inside it
+   a notch brighter so they stay readable against the blue highlight.
+   Without this, the #1e293b control fill blends into the highlight and
+   the boxes look almost invisible. */
+/* !important is needed because sceneInput/sceneSelect set
+   backgroundColor inline via React style props, and inline styles
+   beat CSS class rules without it. */
+.scene-list-row.is-selected input,
+.scene-list-row.is-selected select,
+.scene-list-row.is-selected textarea {
+  background-color: #324562 !important;
+  border-color: #64748b !important;
+}
+
+/* Divider strip: holds [line] [≡ glyph] [line] [× delete] across the
+   top of every row (except the first, which only gets the × since
+   there's no line above it). The whole strip is the drag handle —
+   pointer-events on the × are intercepted so clicks don't bubble. */
+.scene-list-row-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -5px;
+  height: 10px;
+  cursor: grab;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Reserve space on the right for the absolutely-positioned ×
+     button so the right line segment ends before the × instead of
+     running under it. Mirror the same amount on the left so the
+     line+glyph+order+glyph+line layout stays centred on the row. */
+  padding: 0 24px;
+  color: rgba(148, 163, 184, 0.45);
+  font-size: 16px;
+  line-height: 1;
+  user-select: none;
+  transition: color 0.15s;
+}
+/* First row's strip uses the same top: -5px as every other row so the
+   visual gap between the strip's line and the row content matches what
+   you get between rows. The scenesList wrapper gets a matching top
+   padding (in Editor.tsx) so the strip isn't clipped by overflow:auto. */
+.scene-list-row-handle:active {
+  cursor: grabbing;
+}
+.scene-list-row-handle:hover {
+  color: rgba(226, 232, 240, 0.85);
+}
+/* Left + right line segments. */
+.scene-list-line {
+  flex: 1;
+  height: 1px;
+  background: rgba(148, 163, 184, 0.3);
+  transition: background 0.15s, height 0.15s;
+}
+.scene-list-row-handle:hover .scene-list-line {
+  background: rgba(148, 163, 184, 0.6);
+  height: 2px;
+}
+.scene-list-glyph {
+  flex-shrink: 0;
+}
+/* Scene order number sitting between the two ≡ glyphs in the middle
+   of the divider strip. Slightly bolder + tabular numerals so two-
+   digit numbers don't shift the layout. */
+.scene-list-order {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(148, 163, 184, 0.7);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.scene-list-row-handle:hover .scene-list-order {
+  color: rgba(226, 232, 240, 0.95);
+}
+/* Trailing × delete button. Positioned absolutely on the right edge of
+   the strip so it sits OUTSIDE the flex flow — otherwise its width
+   would shift the line+glyph+order+glyph+line layout off-centre and
+   the order number would no longer line up with the row's midpoint.
+   draggable={false} on the button stops the parent strip's drag from
+   firing when the user clicks the ×. */
+.scene-list-remove {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  padding: 0 4px;
+  color: rgba(148, 163, 184, 0.45);
+  /* A touch larger than the ≡ glyph so it reads as the actionable
+     control on the strip. translateY(-50%) centres on top:50%; the
+     extra -3px compensates for the × glyph sitting a few px below its
+     own bounding box centre. */
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s;
+  font-family: inherit;
+  transform: translateY(calc(-50% - 3px));
+}
+.scene-list-remove:hover {
+  color: #ef4444;
+}
