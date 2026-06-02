@@ -50,10 +50,10 @@ services:
       PROJECT_DIR: /project
       OUTPUT_DIR: /renders
       BROWSER_EXECUTABLE: /usr/bin/chromium
-      RENDER_WALL_CLOCK_MS: ${RENDER_WALL_CLOCK_MS:-900000}
       NEXT_PUBLIC_ASSET_BASE_URL: ${NEXT_PUBLIC_ASSET_BASE_URL:-https://storage.googleapis.com/audeobox-cdn/videobox}
       NEXT_PUBLIC_RENDER_API_BASE: ${NEXT_PUBLIC_RENDER_API_BASE:-/api/render}
       NEXT_PUBLIC_FEED_BASE_URL: ${NEXT_PUBLIC_FEED_BASE_URL:-/audeobox-feeds}
+      RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-1}
     ports:
       - "${VIDEOBOX_BIND_HOST:-127.0.0.1}:${VIDEOBOX_RENDER_PORT:-3101}:3001"
     volumes:

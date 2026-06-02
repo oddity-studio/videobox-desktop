@@ -19,20 +19,19 @@ export type FontConfig = {
 };
 
 // Load only the exact weight/style/subset each scene template actually uses.
-// Without these options @remotion/google-fonts fans out to every weight × every
-// subset per family — 100s of network requests per render, with each one
-// holding an unresolved delayRender() handle. A single stalled fetch then
+// Without these options @remotion/google-fonts fans out to every weight ×
+// every subset per family — 100s of network requests per render, each one
+// holding an unresolved delayRender() handle, a single stalled fetch
 // freezes the whole render and the FIFO queue behind it.
+// Weight coverage is cross-referenced from the FONT_MAP defaults below and
+// hardcoded fontWeight overrides in HelloWorld.tsx (Exo 2 at 700/800 in
+// Killstreak/King overlays, Passion One's `?? 700` fallback).
 const SUBSETS: Array<"latin"> = ["latin"];
 
 export const FONT_MAP: Record<string, FontConfig> = {
+  // Single-weight fonts (Google only ships 400). One file per family.
   "Dela Gothic One": {
     fontFamily: loadDelaGothicOne("normal", { weights: ["400"], subsets: SUBSETS }).fontFamily,
-  },
-  "Exo 2": {
-    fontFamily: loadExo2("italic", { weights: ["900"], subsets: SUBSETS }).fontFamily,
-    fontWeight: 900,
-    fontStyle: "italic",
   },
   "Permanent Marker": {
     fontFamily: loadPermanentMarker("normal", { weights: ["400"], subsets: SUBSETS }).fontFamily,
@@ -40,19 +39,29 @@ export const FONT_MAP: Record<string, FontConfig> = {
   "Anton": {
     fontFamily: loadAnton("normal", { weights: ["400"], subsets: SUBSETS }).fontFamily,
   },
-  "Big Shoulders": {
-    fontFamily: loadBigShoulders("normal", { weights: ["600"], subsets: SUBSETS }).fontFamily,
-    fontWeight: 600,
-  },
   "Bowlby One SC": {
     fontFamily: loadBowlbyOneSC("normal", { weights: ["400"], subsets: SUBSETS }).fontFamily,
   },
   "Fugaz One": {
     fontFamily: loadFugazOne("normal", { weights: ["400"], subsets: SUBSETS }).fontFamily,
   },
+  // Two-weight font — `?? 700` fallback in HelloWorld may pick 700.
   "Passion One": {
-    fontFamily: loadPassionOne("normal", { weights: ["400"], subsets: SUBSETS }).fontFamily,
+    fontFamily: loadPassionOne("normal", { weights: ["400", "700"], subsets: SUBSETS }).fontFamily,
     lineHeight: 0.85,
+  },
+  // Variable fonts — only the weights we render. Exo 2 italic is used at
+  // 700/800/900 (sceneUtils default + Killstreak/King/BotW overlays in
+  // HelloWorld.tsx). Big Shoulders 600 from fontConfig. Montserrat italic
+  // 900 from fontConfig (no overrides).
+  "Exo 2": {
+    fontFamily: loadExo2("italic", { weights: ["700", "800", "900"], subsets: SUBSETS }).fontFamily,
+    fontWeight: 900,
+    fontStyle: "italic",
+  },
+  "Big Shoulders": {
+    fontFamily: loadBigShoulders("normal", { weights: ["600"], subsets: SUBSETS }).fontFamily,
+    fontWeight: 600,
   },
   "Montserrat": {
     fontFamily: loadMontserrat("italic", { weights: ["900"], subsets: SUBSETS }).fontFamily,

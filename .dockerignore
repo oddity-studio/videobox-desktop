@@ -4,4 +4,6 @@ out/
 tsconfig.tsbuildinfo
 *.log
 .DS_Store
-public/
+# public/ is intentionally NOT excluded — the render container needs the asset
+# files locally so Remotion's static server can serve them (NEXT_PUBLIC_ASSET_BASE_URL=""
+# at render time). Cross-origin CDN fetches deadlock OffthreadVideo on remote sources.

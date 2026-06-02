@@ -882,6 +882,12 @@ export default function Editor() {
         if (s.status === "failed") {
           throw new Error(s.error || "render failed");
         }
+        if (s.status === "timed_out") {
+          // Server-side failsafe fired (DEFAULT_RENDER_TIMEOUT_MS in
+          // server.mjs). Show the user an error so they know the render
+          // didn't silently die — otherwise the loop would poll forever.
+          throw new Error(s.error || "render timed out");
+        }
       }
 
       // 3. download. Fetch as a blob so we can trigger a save with the

@@ -6,7 +6,7 @@ const stripTrailingSlash = (value: string): string => value.replace(/\/+$/, "");
 const stripLeadingSlash = (value: string): string => value.replace(/^\/+/, "");
 
 const cleanBase = (value: string | undefined, fallback: string): string => {
-  const raw = value?.trim() || fallback;
+  const raw = (value ?? fallback).trim();
   return stripTrailingSlash(raw);
 };
 

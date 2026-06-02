@@ -58,9 +58,167 @@ const ENTRY_POINT = path.join(PROJECT_DIR, "src/index.ts");
 const COMPOSITION_ID = process.env.COMPOSITION_ID || "HelloWorld";
 const OUTPUT_DIR = process.env.OUTPUT_DIR || "/renders";
 const PORT = Number(process.env.PORT) || 3001;
-const ASSET_BASE_URL = process.env.NEXT_PUBLIC_ASSET_BASE_URL || "https://storage.googleapis.com/audeobox-cdn/videobox";
+// UPSTREAM_CDN is where the asset cache fetches files from on a miss. The
+// bundle itself is pointed at the loopback cache, not the CDN — see
+// ASSET_BASE_URL below.
+const UPSTREAM_CDN = process.env.NEXT_PUBLIC_ASSET_BASE_URL ?? "https://storage.googleapis.com/audeobox-cdn/videobox";
+// Bundle-facing asset base URL. Loopback to this same Express server's
+// /cache/* route, so OffthreadVideo / Audio / Img inside the rendered tab
+// only ever talks to localhost (no per-frame internet round-trip, no
+// multi-tab CDN download race that was deadlocking renders).
+const ASSET_BASE_URL = `http://localhost:${PORT}/cache`;
 const RENDER_API_BASE = process.env.NEXT_PUBLIC_RENDER_API_BASE || "/api/render";
 const FEED_BASE_URL = process.env.NEXT_PUBLIC_FEED_BASE_URL || "/audeobox-feeds";
+
+// Number of Chromium tabs Remotion runs in parallel for each render. Default
+// 1 because a 2-core / 2 GB WSL podman VM can't reliably keep two tabs alive
+// (zombie processes, render froze at 0% — see project-render-hang-regression).
+// Production hosts with more CPU/RAM should set RENDER_CONCURRENCY=2 (or
+// higher) for roughly linear speedup. Capped at 8 to avoid silly values.
+const RENDER_CONCURRENCY = Math.max(1, Math.min(8,
+    Number.parseInt(process.env.RENDER_CONCURRENCY || "", 10) || 1));
+
+// On-disk cache for CDN assets. Lives for the container's lifetime; warmed
+// per-render before renderMedia starts so all asset requests from inside
+// the bundle hit local disk instantly.
+const ASSET_CACHE_DIR = path.join(os.tmpdir(), "videobox-asset-cache");
+fs.mkdirSync(ASSET_CACHE_DIR, { recursive: true });
+
+// Lottie transition JSONs are preloaded from disk at startup and injected
+// into every render's inputProps so the bundle never has to fetch them at
+// render time. The fetch path was racing/failing during headless render
+// (lottie-web crashed in completeLayers on whatever came back) and there's
+// no upside to a network round-trip per tab when the data is on the same
+// disk as the renderer.
+const TRANSITIONS_DIR = path.join(PROJECT_DIR, "public/picker/transitions");
+function loadTransitionPreloads() {
+    try {
+        const entries = fs.readdirSync(TRANSITIONS_DIR).filter((f) => f.endsWith(".json"));
+        const out = {};
+        for (const file of entries) {
+            try {
+                const raw = fs.readFileSync(path.join(TRANSITIONS_DIR, file), "utf8");
+                out[file] = JSON.parse(raw);
+            } catch (err) {
+                console.warn(`[videobox-render] preload transition ${file} failed: ${err.message}`);
+            }
+        }
+        console.log(`[videobox-render] preloaded ${Object.keys(out).length} Lottie transitions: ${Object.keys(out).join(", ")}`);
+        return out;
+    } catch (err) {
+        console.warn(`[videobox-render] no transitions to preload (${TRANSITIONS_DIR}): ${err.message}`);
+        return {};
+    }
+}
+const TRANSITIONS_PRELOAD = loadTransitionPreloads();
+
+// ───────────────────────── ASSET CACHE ─────────────────────────
+// Singleflight downloader: concurrent requests for the same path collapse
+// into one upstream fetch. Returns the absolute path on disk when ready.
+const inflightDownloads = new Map();
+function cachePathFor(relPath) {
+    // Mirror the upstream layout so the file structure is human-readable
+    // and easy to spot-check. relPath is the slash-joined trailing portion
+    // of the CDN URL (e.g. "picker/music/Tournament.mp3").
+    const safe = relPath.split("/").map(encodeURIComponent).join("/");
+    return { decoded: path.join(ASSET_CACHE_DIR, relPath), safeRel: safe };
+}
+function ensureCached(relPath) {
+    // Strip any leading slash and any querystring before caching.
+    const clean = relPath.replace(/^\/+/, "").split("?")[0];
+    if (!clean) return Promise.reject(new Error("empty asset path"));
+    const { decoded: filePath } = cachePathFor(clean);
+    if (fs.existsSync(filePath) && fs.statSync(filePath).size > 0) {
+        return Promise.resolve(filePath);
+    }
+    const existing = inflightDownloads.get(clean);
+    if (existing) return existing;
+    const url = `${UPSTREAM_CDN}/${clean.split("/").map(encodeURIComponent).join("/")}`;
+    const tmp = `${filePath}.${process.pid}.${Date.now()}.partial`;
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    const p = (async () => {
+        const t0 = Date.now();
+        const res = await fetch(url);
+        if (!res.ok) {
+            throw new Error(`upstream ${res.status} ${res.statusText} for ${clean}`);
+        }
+        const ab = await res.arrayBuffer();
+        fs.writeFileSync(tmp, Buffer.from(ab));
+        fs.renameSync(tmp, filePath);
+        const ms = Date.now() - t0;
+        const kb = Math.round(ab.byteLength / 1024);
+        console.log(`[videobox-render] cached ${clean} (${kb} KB in ${ms} ms)`);
+        return filePath;
+    })().finally(() => {
+        inflightDownloads.delete(clean);
+        // Clean up any leftover partial on failure.
+        try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (_) {}
+    });
+    inflightDownloads.set(clean, p);
+    return p;
+}
+
+// Walk inputProps and emit every relative asset path the render is going
+// to need. Mirrors how HelloWorld.tsx + sceneUtils.ts build URLs from the
+// props. We only enumerate user-driven choices — anything statically
+// referenced by scene layouts (firedash.webp, Audeobox_text.png, etc.)
+// will be lazy-cached on first miss via /cache/*.
+function collectAssetPaths(inputProps) {
+    const out = new Set();
+    if (!inputProps || typeof inputProps !== "object") return out;
+    const push = (p) => {
+        if (typeof p !== "string") return;
+        const trimmed = p.trim();
+        if (!trimmed) return;
+        // Skip blob:/data: URLs (uploaded videos live in the browser) and
+        // anything that's already a fully-qualified URL to somewhere other
+        // than the configured upstream CDN.
+        if (/^(blob:|data:)/i.test(trimmed)) return;
+        if (/^https?:/i.test(trimmed)) {
+            if (trimmed.startsWith(UPSTREAM_CDN + "/")) {
+                out.add(trimmed.slice(UPSTREAM_CDN.length + 1));
+            }
+            return;
+        }
+        out.add(trimmed.replace(/^\/+/, ""));
+    };
+    if (inputProps.music && inputProps.music !== "none") {
+        push(`picker/music/${inputProps.music}`);
+    }
+    if (inputProps.transition && inputProps.transition !== "none" &&
+        /\.(webm|mp4)$/i.test(inputProps.transition)) {
+        // Only video transitions need caching — JSON ones are preloaded.
+        push(`picker/transitions/${inputProps.transition}`);
+    }
+    if (inputProps.overlayVideo && inputProps.overlayVideo !== "none") {
+        push(inputProps.overlayVideo);
+    }
+    const scenes = Array.isArray(inputProps.scenes) ? inputProps.scenes : [];
+    for (const scene of scenes) {
+        if (!scene || typeof scene !== "object") continue;
+        if (scene.portrait) push(`picker/Portraits/${scene.portrait}`);
+        const bg = scene.backgroundVideo;
+        if (bg && typeof bg === "object" && typeof bg.src === "string") push(bg.src);
+    }
+    return out;
+}
+
+async function prewarmAssets(inputProps) {
+    const paths = [...collectAssetPaths(inputProps)];
+    if (paths.length === 0) {
+        console.log(`[videobox-render] no assets to prewarm`);
+        return;
+    }
+    const t0 = Date.now();
+    const results = await Promise.allSettled(paths.map((p) => ensureCached(p)));
+    const failed = results.filter((r) => r.status === "rejected");
+    const ms = Date.now() - t0;
+    if (failed.length) {
+        console.warn(`[videobox-render] prewarm: ${paths.length - failed.length}/${paths.length} ok in ${ms} ms — ${failed.length} failed: ${failed.map((f) => f.reason?.message || f.reason).join("; ")}`);
+    } else {
+        console.log(`[videobox-render] prewarmed ${paths.length} assets in ${ms} ms`);
+    }
+}
 // Optional path to a pre-installed browser binary. When set we skip the
 // network download in ensureBrowser() and pass this through to
 // selectComposition/renderMedia. In the fastapi container this is set to
@@ -71,13 +229,14 @@ const BROWSER_EXECUTABLE = process.env.BROWSER_EXECUTABLE || null;
 // before reaping. 1 hour is enough to recover from a flaky download and
 // not so long that disk usage runs away.
 const JOB_TTL_MS = 60 * 60 * 1000;
-
-// Maximum wall-clock time any single render may occupy the queue. Remotion's
-// per-handle `timeoutInMilliseconds` doesn't fire when a Chromium tab dies
-// silently, so without this cap a wedged render dead-locks every job behind
-// it in the FIFO chain. Default 15 min covers a 30 s 1080×1920 render with
-// generous headroom; override with RENDER_WALL_CLOCK_MS for longer comps.
-const RENDER_WALL_CLOCK_MS = Number(process.env.RENDER_WALL_CLOCK_MS) || 15 * 60 * 1000;
+// Per-job hard timeout. If a render hangs past this it gets cancelled
+// automatically so the queue doesn't get stuck behind one wedged job.
+// Configurable per-request via `?timeout=<seconds>`; capped at the max.
+const DEFAULT_RENDER_TIMEOUT_MS = 30 * 60 * 1000;   // 30 min
+const MAX_RENDER_TIMEOUT_MS = 60 * 60 * 1000;       // 60 min
+// Grace period after cancel() before the queue gives up waiting for the
+// in-flight job to settle. Stops a stuck cancel from blocking other jobs.
+const CANCEL_GRACE_MS = 60 * 1000;                  // 1 min
 
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
@@ -162,6 +321,9 @@ function newJob() {
         createdAt: Date.now(),
         startedAt: null,
         finishedAt: null,
+        // Set by the POST /render handler before enqueue().
+        timeoutMs: DEFAULT_RENDER_TIMEOUT_MS,
+        timedOut: false,
     };
     jobs.set(id, record);
     return record;
@@ -172,38 +334,31 @@ function newJob() {
 // instance. Letting two run in parallel on this WSL/podman host causes the
 // second browser launch to time out at 30 s ("setting up the headless
 // browser") and leaves zombie chrome-headless processes behind.
+//
+// Hardened: the chain catches errors so one failed task doesn't poison the
+// queue, AND each task is wrapped with a hard timeout so a hung renderMedia
+// (cancel signal not honored, ffmpeg deadlocked, etc.) can't pin the queue
+// forever. After CANCEL_GRACE_MS past the timeout we give up waiting and
+// let the next job start regardless.
 let renderQueue = Promise.resolve();
-function enqueue(task) {
-    renderQueue = renderQueue.then(() => task()).catch(() => {});
-    return renderQueue;
-}
-
-// Race a task against a wall-clock deadline. On timeout we fire the job's
-// cancelFn (if any) to nudge Remotion's cancelSignal, log it, and surface a
-// distinct "timeout" status — then resolve so the queue advances even when
-// Chromium is silently dead. The original task keeps running in the
-// background; it can finish into a now-orphaned job record without breaking
-// anything, but we no longer block the chain on it.
-function withWallClockTimeout(job, taskPromise, ms) {
-    let timer;
-    const timeout = new Promise((resolve) => {
-        timer = setTimeout(() => {
-            if (["done", "failed", "cancelled"].includes(job.status)) {
+function enqueue(task, { maxWaitMs, label } = {}) {
+    renderQueue = renderQueue.then(() => {
+        if (!Number.isFinite(maxWaitMs) || maxWaitMs <= 0) return task();
+        // Race the task against a hard ceiling. If the task never resolves
+        // (a wedged renderMedia, ffmpeg deadlock, …) we move on so the
+        // next queued job can start. The orphaned task continues running
+        // in the background but no longer holds the queue.
+        return Promise.race([
+            task(),
+            new Promise((resolve) => setTimeout(() => {
+                console.warn(`[videobox-render] queue gave up waiting on ${label || "task"} after ${Math.round(maxWaitMs / 1000)}s — moving on`);
                 resolve();
-                return;
-            }
-            console.error(`[videobox-render] ${job.id} TIMEOUT after ${ms}ms — abandoning slot`);
-            try { job.cancelFn?.(); } catch (_) {}
-            job.status = "timeout";
-            job.error = `wall-clock timeout after ${Math.round(ms / 1000)}s`;
-            job.finishedAt = Date.now();
-            resolve();
-        }, ms);
+            }, maxWaitMs)),
+        ]);
+    }).catch((err) => {
+        console.warn(`[videobox-render] queue task threw: ${err?.message || err}`);
     });
-    return Promise.race([
-        taskPromise.finally(() => clearTimeout(timer)),
-        timeout,
-    ]);
+    return renderQueue;
 }
 
 // Helper: render the whole composition once. Updates job.progress 0..1.
@@ -218,6 +373,10 @@ async function renderFull({ job, serveUrl, composition, inputProps, outputLocati
         inputProps,
         browserExecutable: BROWSER_EXECUTABLE,
         chromiumOptions: { headless: true },
+        // Configurable via RENDER_CONCURRENCY env var. Default 1 because
+        // resource-tight hosts (like a 2-core / 2 GB WSL VM) can't keep a
+        // second Chromium tab alive — see project-render-hang-regression.
+        concurrency: RENDER_CONCURRENCY,
         timeoutInMilliseconds: 120000,
         cancelSignal,
         onProgress: ({ progress }) => {
@@ -272,7 +431,7 @@ async function runRender(job, inputProps, mode) {
     }
     job.status = "bundling";
     job.startedAt = Date.now();
-    console.log(`[videobox-render] ${job.id} start (mode=${mode})`);
+    console.log(`[videobox-render] ${job.id} start (mode=${mode}, timeout=${Math.round(job.timeoutMs / 1000)}s)`);
     // One cancel signal per job. cancel() is wired to job.cancelFn so the
     // /cancel endpoint can fire it from outside this scope.
     const { cancelSignal, cancel } = makeCancelSignal();
@@ -281,8 +440,27 @@ async function runRender(job, inputProps, mode) {
         job.cancelled = true;
         try { cancel(); } catch (_) {}
     };
+    // Hard timeout failsafe: if the render hasn't settled within
+    // job.timeoutMs we mark it timed-out and fire the cancel signal. The
+    // queue's per-task race in enqueue() backs this up by giving up
+    // waiting after a further CANCEL_GRACE_MS so a stuck render can't
+    // pin the queue.
+    let timedOut = false;
+    const timeoutHandle = setTimeout(() => {
+        if (job.cancelled || job.status === "done") return;
+        timedOut = true;
+        job.timedOut = true;
+        console.warn(`[videobox-render] ${job.id} TIMEOUT after ${Math.round(job.timeoutMs / 1000)}s — cancelling`);
+        try { job.cancelFn?.(); } catch (_) {}
+    }, job.timeoutMs);
     try {
         const serveUrl = await getBundle();
+        if (job.cancelled) throw new Error("cancelled");
+        // Pre-warm the asset cache so every URL the bundle will hit
+        // (looped back through /cache) is already on local disk. Stops
+        // the multi-tab CDN-download race that used to deadlock renders.
+        job.status = "caching";
+        await prewarmAssets(inputProps);
         if (job.cancelled) throw new Error("cancelled");
         job.status = "selecting";
         const composition = await selectComposition({
@@ -349,6 +527,8 @@ async function runRender(job, inputProps, mode) {
                     frameRange: [sceneStart, sceneEnd],
                     browserExecutable: BROWSER_EXECUTABLE,
                     chromiumOptions: { headless: true },
+                    // Configurable — see note in renderFull().
+                    concurrency: RENDER_CONCURRENCY,
                     timeoutInMilliseconds: 120000,
                     cancelSignal,
                     onProgress: ({ progress }) => {
@@ -397,9 +577,13 @@ async function runRender(job, inputProps, mode) {
         // Cancellation paths land here too — Remotion's cancelSignal rejects
         // with a "cancelled" Error, and our pre-render guards throw the same
         // message. Surface it as a distinct status so the UI can show
-        // "Cancelled" instead of "Failed".
+        // "Cancelled" / "Timed out" instead of generic "Failed".
         const isCancelled = job.cancelled || /cancel/i.test(String(err?.message || err));
-        if (isCancelled) {
+        if (timedOut) {
+            console.log(`[videobox-render] ${job.id} timed_out`);
+            job.status = "timed_out";
+            job.error = `render exceeded ${Math.round(job.timeoutMs / 1000)}s timeout`;
+        } else if (isCancelled) {
             console.log(`[videobox-render] ${job.id} cancelled`);
             job.status = "cancelled";
             job.error = "cancelled by user";
@@ -419,6 +603,8 @@ async function runRender(job, inputProps, mode) {
             const partial = path.join(OUTPUT_DIR, `videobox-${job.id}.mp4`);
             if (fs.existsSync(partial)) fs.unlinkSync(partial);
         } catch (_) {}
+    } finally {
+        clearTimeout(timeoutHandle);
     }
 }
 
@@ -427,6 +613,26 @@ const app = express();
 app.use(express.json({ limit: "8mb" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
+
+// Loopback asset cache. The rendered bundle's ASSET_BASE_URL points here,
+// so OffthreadVideo / Audio / Img inside the headless tab reads files
+// straight off this container's tmpfs. Pre-warmed by /render before
+// renderMedia starts; lazy-cached on miss for anything we didn't predict.
+app.get(/^\/cache\/(.+)$/, async (req, res) => {
+    const relPath = decodeURIComponent(req.params[0] || "");
+    if (!relPath || relPath.includes("..")) {
+        return res.status(400).send("bad path");
+    }
+    try {
+        const filePath = await ensureCached(relPath);
+        res.setHeader("Cache-Control", "public, max-age=3600");
+        res.sendFile(filePath);
+    } catch (err) {
+        const msg = err?.message || String(err);
+        console.warn(`[videobox-render] cache miss for ${relPath}: ${msg}`);
+        res.status(502).send(`asset fetch failed: ${msg}`);
+    }
+});
 
 app.post("/render", (req, res) => {
     // Two body shapes accepted:
@@ -441,11 +647,30 @@ app.post("/render", (req, res) => {
         inputProps = body;
         mode = "integral";
     }
+    // Inject only the selected Lottie transition (if any) so the bundle
+    // reads it synchronously from inputProps instead of fetching at render
+    // time. Avoids shipping ~1.5 MB of unused Lottie JSON in every render.
+    const selectedTransition = typeof inputProps?.transition === "string" ? inputProps.transition : null;
+    const scopedTransitions = (selectedTransition && TRANSITIONS_PRELOAD[selectedTransition])
+        ? { [selectedTransition]: TRANSITIONS_PRELOAD[selectedTransition] }
+        : {};
+    inputProps = { ...inputProps, transitions: scopedTransitions };
+    // Per-request timeout (seconds), clamped to [1, MAX_RENDER_TIMEOUT_MS/1000].
+    // Default 15 min. If ?timeout is malformed we fall back to default rather
+    // than 400ing — the caller might be a legacy editor without the param.
+    const rawTimeout = Number.parseInt(String(req.query.timeout || ""), 10);
+    const timeoutMs = Number.isFinite(rawTimeout) && rawTimeout > 0
+        ? Math.min(MAX_RENDER_TIMEOUT_MS, rawTimeout * 1000)
+        : DEFAULT_RENDER_TIMEOUT_MS;
     const job = newJob();
     job.mode = mode;
-    console.log(`[videobox-render] ${job.id} queued (mode=${mode})`);
-    enqueue(() => withWallClockTimeout(job, runRender(job, inputProps, mode), RENDER_WALL_CLOCK_MS));
-    res.json({ ok: true, id: job.id, mode });
+    job.timeoutMs = timeoutMs;
+    console.log(`[videobox-render] ${job.id} queued (mode=${mode}, transition=${selectedTransition || "none"}, timeout=${Math.round(timeoutMs / 1000)}s)`);
+    enqueue(() => runRender(job, inputProps, mode), {
+        maxWaitMs: timeoutMs + CANCEL_GRACE_MS,
+        label: job.id,
+    });
+    res.json({ ok: true, id: job.id, mode, timeoutSec: Math.round(timeoutMs / 1000) });
 });
 
 app.get("/render/:id/status", (req, res) => {
@@ -461,6 +686,7 @@ app.get("/render/:id/status", (req, res) => {
         progress: Math.round(job.progress * 1000) / 1000,
         error: job.error,
         outputName: job.outputName,
+        timedOut: Boolean(job.timedOut),
     };
     if (job.startedAt) payload.elapsedMs = (job.finishedAt || Date.now()) - job.startedAt;
     res.json(payload);
@@ -471,7 +697,7 @@ app.post("/render/:id/cancel", (req, res) => {
     if (!job) {
         return res.status(404).json({ ok: false, error: "unknown render id" });
     }
-    if (["done", "failed", "cancelled"].includes(job.status)) {
+    if (["done", "failed", "cancelled", "timed_out"].includes(job.status)) {
         return res.json({ ok: true, id: job.id, status: job.status, note: "already finished" });
     }
     console.log(`[videobox-render] ${job.id} cancel requested (status=${job.status})`);

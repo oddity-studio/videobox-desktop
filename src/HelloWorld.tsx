@@ -2171,7 +2171,14 @@ const TitleCard: React.FC<{ colorScheme: VideoProps["colorScheme"]; layoutIndex:
   );
 };
 
-export const HelloWorld: React.FC<VideoProps> = ({ colorScheme, scenes, music = "Tournament.mp3", transition = "flash.json", font = "Dela Gothic One", overlayVideo = "none" }) => {
+// The render server injects `transitions` (a map of pre-parsed Lottie JSONs
+// keyed by filename) into inputProps before render — see prewarmAssets() in
+// server/server.mjs. The schema doesn't include it because it's an
+// implementation detail of the rendering pipeline, not part of the editor's
+// data model. The shape is intentionally loose so the editor's <Player>
+// preview (which doesn't ship this prop) still typechecks.
+type HelloWorldProps = VideoProps & { transitions?: Record<string, unknown> };
+export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, music = "Tournament.mp3", transition = "flash.json", font = "Dela Gothic One", overlayVideo = "none", transitions }) => {
   const fontConfig = FONT_MAP[font] || FONT_MAP["Dela Gothic One"];
 
   // Compute cumulative start positions for variable-duration scenes
@@ -2248,7 +2255,10 @@ export const HelloWorld: React.FC<VideoProps> = ({ colorScheme, scenes, music = 
                 from={sceneStart - transitionOffset}
                 durationInFrames={transitionDuration}
               >
-                <LottieTransition src={assetUrl(`picker/transitions/${transition}`)} />
+                <LottieTransition
+                  src={assetUrl(`picker/transitions/${transition}`)}
+                  data={transitions?.[transition] as never}
+                />
               </Sequence>
             )}
           </React.Fragment>

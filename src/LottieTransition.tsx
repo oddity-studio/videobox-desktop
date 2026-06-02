@@ -43,6 +43,12 @@ const TRANSITION_DURATION = TRANSITION_PROFILES.DEFAULT.durationInFrames;
 const cache = new Map<string, LottieAnimationData>();
 const pending = new Map<string, Promise<LottieAnimationData>>();
 
+// Preloaded transition data is passed in as a prop from HelloWorld instead
+// of read via getInputProps() — getInputProps() throws inside the editor's
+// <Player> preview and is called per-frame anyway, which was burning a lot
+// of work for our 348 KB flash.json payload. Prop-drilling is simpler and
+// works in both render and preview contexts.
+
 function preloadTransition(url: string): Promise<LottieAnimationData> {
   const cached = cache.get(url);
   if (cached) return Promise.resolve(cached);
@@ -68,23 +74,34 @@ const rotatedStyle: React.CSSProperties = {
   transform: "rotate(90deg)",
 };
 
-const Transition: React.FC<{ src?: string }> = ({ src }) => {
+const Transition: React.FC<{ src?: string; data?: LottieAnimationData }> = ({ src, data }) => {
   const frame = useCurrentFrame();
   const filePath = assetUrl(src || "picker/transitions/flash.json");
   const isVideo = filePath.endsWith(".webm") || filePath.endsWith(".mp4");
 
   // Look up the per-transition profile by the bare filename (the trailing
   // segment of `filePath`). Falls back to DEFAULT for anything unknown.
-  const profile = getTransitionProfile(filePath.split("/").pop());
+  const transitionName = filePath.split("/").pop();
+  const profile = getTransitionProfile(transitionName);
   const blendMode = profile.blendMode;
   const playbackRate = profile.playbackRate ?? 1;
 
+  // The render server injects pre-parsed Lottie JSONs into inputProps and
+  // HelloWorld passes the matching one in here as `data`. That bypasses the
+  // in-bundle fetch entirely, which was crashing lottie-web with
+  // "undefined.length" when the response wasn't valid Lottie data.
+  const preloaded = !isVideo ? data : undefined;
+
   const [animationData, setAnimationData] = useState<LottieAnimationData | null>(
-    !isVideo ? (cache.get(filePath) ?? null) : null
+    !isVideo ? (preloaded ?? cache.get(filePath) ?? null) : null
   );
 
   useEffect(() => {
     if (isVideo) return;
+    if (preloaded) {
+      setAnimationData(preloaded);
+      return;
+    }
     const cached = cache.get(filePath);
     if (cached) {
       setAnimationData(cached);
@@ -92,7 +109,7 @@ const Transition: React.FC<{ src?: string }> = ({ src }) => {
     }
     setAnimationData(null);
     preloadTransition(filePath).then((data) => setAnimationData(data));
-  }, [filePath, isVideo]);
+  }, [filePath, isVideo, preloaded]);
 
   if (isVideo) {
     return (
