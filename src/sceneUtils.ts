@@ -23,7 +23,7 @@ export type FontConfig = {
 // subset per family — 100s of network requests per render, with each one
 // holding an unresolved delayRender() handle. A single stalled fetch then
 // freezes the whole render and the FIFO queue behind it.
-const SUBSETS = ["latin"];
+const SUBSETS: Array<"latin"> = ["latin"];
 
 export const FONT_MAP: Record<string, FontConfig> = {
   "Dela Gothic One": {
