@@ -72,6 +72,13 @@ const BROWSER_EXECUTABLE = process.env.BROWSER_EXECUTABLE || null;
 // not so long that disk usage runs away.
 const JOB_TTL_MS = 60 * 60 * 1000;
 
+// Maximum wall-clock time any single render may occupy the queue. Remotion's
+// per-handle `timeoutInMilliseconds` doesn't fire when a Chromium tab dies
+// silently, so without this cap a wedged render dead-locks every job behind
+// it in the FIFO chain. Default 15 min covers a 30 s 1080×1920 render with
+// generous headroom; override with RENDER_WALL_CLOCK_MS for longer comps.
+const RENDER_WALL_CLOCK_MS = Number(process.env.RENDER_WALL_CLOCK_MS) || 15 * 60 * 1000;
+
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
 let cachedBundlePath = null;
@@ -169,6 +176,34 @@ let renderQueue = Promise.resolve();
 function enqueue(task) {
     renderQueue = renderQueue.then(() => task()).catch(() => {});
     return renderQueue;
+}
+
+// Race a task against a wall-clock deadline. On timeout we fire the job's
+// cancelFn (if any) to nudge Remotion's cancelSignal, log it, and surface a
+// distinct "timeout" status — then resolve so the queue advances even when
+// Chromium is silently dead. The original task keeps running in the
+// background; it can finish into a now-orphaned job record without breaking
+// anything, but we no longer block the chain on it.
+function withWallClockTimeout(job, taskPromise, ms) {
+    let timer;
+    const timeout = new Promise((resolve) => {
+        timer = setTimeout(() => {
+            if (["done", "failed", "cancelled"].includes(job.status)) {
+                resolve();
+                return;
+            }
+            console.error(`[videobox-render] ${job.id} TIMEOUT after ${ms}ms — abandoning slot`);
+            try { job.cancelFn?.(); } catch (_) {}
+            job.status = "timeout";
+            job.error = `wall-clock timeout after ${Math.round(ms / 1000)}s`;
+            job.finishedAt = Date.now();
+            resolve();
+        }, ms);
+    });
+    return Promise.race([
+        taskPromise.finally(() => clearTimeout(timer)),
+        timeout,
+    ]);
 }
 
 // Helper: render the whole composition once. Updates job.progress 0..1.
@@ -409,7 +444,7 @@ app.post("/render", (req, res) => {
     const job = newJob();
     job.mode = mode;
     console.log(`[videobox-render] ${job.id} queued (mode=${mode})`);
-    enqueue(() => runRender(job, inputProps, mode));
+    enqueue(() => withWallClockTimeout(job, runRender(job, inputProps, mode), RENDER_WALL_CLOCK_MS));
     res.json({ ok: true, id: job.id, mode });
 });
 

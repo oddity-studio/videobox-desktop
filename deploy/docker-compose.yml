@@ -35,12 +35,22 @@ services:
     build:
       context: ..
       dockerfile: deploy/render.Dockerfile
+    # init=true makes Docker run tini as PID 1 so SIGCHLD from exited
+    # Chromium subprocesses gets reaped. Without this, node-as-PID-1 leaves
+    # <defunct> Chrome processes accumulating; eventually they exhaust the
+    # container's PID table and new Chromium launches hang silently.
+    init: true
+    # Cap blast radius. A leaking Chromium can run away on memory; without
+    # this the container sees the full host RAM via cgroup (~8 EB warning
+    # in the Remotion logs) and an OOM could take other services with it.
+    mem_limit: 6g
     environment:
       NODE_ENV: production
       PORT: 3001
       PROJECT_DIR: /project
       OUTPUT_DIR: /renders
       BROWSER_EXECUTABLE: /usr/bin/chromium
+      RENDER_WALL_CLOCK_MS: ${RENDER_WALL_CLOCK_MS:-900000}
       NEXT_PUBLIC_ASSET_BASE_URL: ${NEXT_PUBLIC_ASSET_BASE_URL:-https://storage.googleapis.com/audeobox-cdn/videobox}
       NEXT_PUBLIC_RENDER_API_BASE: ${NEXT_PUBLIC_RENDER_API_BASE:-/api/render}
       NEXT_PUBLIC_FEED_BASE_URL: ${NEXT_PUBLIC_FEED_BASE_URL:-/audeobox-feeds}

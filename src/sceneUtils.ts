@@ -18,16 +18,47 @@ export type FontConfig = {
   lineHeight?: number;
 };
 
+// Load only the exact weight/style/subset each scene template actually uses.
+// Without these options @remotion/google-fonts fans out to every weight × every
+// subset per family — 100s of network requests per render, with each one
+// holding an unresolved delayRender() handle. A single stalled fetch then
+// freezes the whole render and the FIFO queue behind it.
+const SUBSETS = ["latin"];
+
 export const FONT_MAP: Record<string, FontConfig> = {
-  "Dela Gothic One": { fontFamily: loadDelaGothicOne().fontFamily },
-  "Exo 2": { fontFamily: loadExo2().fontFamily, fontWeight: 900, fontStyle: "italic" },
-  "Permanent Marker": { fontFamily: loadPermanentMarker().fontFamily },
-  "Anton": { fontFamily: loadAnton().fontFamily },
-  "Big Shoulders": { fontFamily: loadBigShoulders().fontFamily, fontWeight: 600 },
-  "Bowlby One SC": { fontFamily: loadBowlbyOneSC().fontFamily },
-  "Fugaz One": { fontFamily: loadFugazOne().fontFamily },
-  "Passion One": { fontFamily: loadPassionOne().fontFamily, lineHeight: 0.85 },
-  "Montserrat": { fontFamily: loadMontserrat().fontFamily, fontWeight: 900, fontStyle: "italic" },
+  "Dela Gothic One": {
+    fontFamily: loadDelaGothicOne("normal", { weights: ["400"], subsets: SUBSETS }).fontFamily,
+  },
+  "Exo 2": {
+    fontFamily: loadExo2("italic", { weights: ["900"], subsets: SUBSETS }).fontFamily,
+    fontWeight: 900,
+    fontStyle: "italic",
+  },
+  "Permanent Marker": {
+    fontFamily: loadPermanentMarker("normal", { weights: ["400"], subsets: SUBSETS }).fontFamily,
+  },
+  "Anton": {
+    fontFamily: loadAnton("normal", { weights: ["400"], subsets: SUBSETS }).fontFamily,
+  },
+  "Big Shoulders": {
+    fontFamily: loadBigShoulders("normal", { weights: ["600"], subsets: SUBSETS }).fontFamily,
+    fontWeight: 600,
+  },
+  "Bowlby One SC": {
+    fontFamily: loadBowlbyOneSC("normal", { weights: ["400"], subsets: SUBSETS }).fontFamily,
+  },
+  "Fugaz One": {
+    fontFamily: loadFugazOne("normal", { weights: ["400"], subsets: SUBSETS }).fontFamily,
+  },
+  "Passion One": {
+    fontFamily: loadPassionOne("normal", { weights: ["400"], subsets: SUBSETS }).fontFamily,
+    lineHeight: 0.85,
+  },
+  "Montserrat": {
+    fontFamily: loadMontserrat("italic", { weights: ["900"], subsets: SUBSETS }).fontFamily,
+    fontWeight: 900,
+    fontStyle: "italic",
+  },
 };
 
 export const FONT_OPTIONS = Object.keys(FONT_MAP);
