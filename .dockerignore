@@ -4,6 +4,9 @@ out/
 tsconfig.tsbuildinfo
 *.log
 .DS_Store
-# public/ is intentionally NOT excluded — the render container needs the asset
-# files locally so Remotion's static server can serve them (NEXT_PUBLIC_ASSET_BASE_URL=""
-# at render time). Cross-origin CDN fetches deadlock OffthreadVideo on remote sources.
+# public/ excluded from the render image. Asset files (videos, audio,
+# images, Lottie transition JSONs) are served from the CDN. The render
+# server fetches transition JSONs once on startup (see
+# loadTransitionPreloads in server.mjs) and proxies everything else
+# through the /cache route (singleflight + on-disk caching).
+public/

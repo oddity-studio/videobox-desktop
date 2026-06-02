@@ -84,33 +84,34 @@ const RENDER_CONCURRENCY = Math.max(1, Math.min(8,
 const ASSET_CACHE_DIR = path.join(os.tmpdir(), "videobox-asset-cache");
 fs.mkdirSync(ASSET_CACHE_DIR, { recursive: true });
 
-// Lottie transition JSONs are preloaded from disk at startup and injected
-// into every render's inputProps so the bundle never has to fetch them at
-// render time. The fetch path was racing/failing during headless render
-// (lottie-web crashed in completeLayers on whatever came back) and there's
-// no upside to a network round-trip per tab when the data is on the same
-// disk as the renderer.
-const TRANSITIONS_DIR = path.join(PROJECT_DIR, "public/picker/transitions");
-function loadTransitionPreloads() {
-    try {
-        const entries = fs.readdirSync(TRANSITIONS_DIR).filter((f) => f.endsWith(".json"));
-        const out = {};
-        for (const file of entries) {
-            try {
-                const raw = fs.readFileSync(path.join(TRANSITIONS_DIR, file), "utf8");
-                out[file] = JSON.parse(raw);
-            } catch (err) {
-                console.warn(`[videobox-render] preload transition ${file} failed: ${err.message}`);
-            }
+// Lottie transition JSONs are preloaded once at server startup from the
+// CDN and injected into every render's inputProps so the bundle never has
+// to fetch them at render time. The in-bundle fetch path was racing /
+// failing during headless render (lottie-web crashed in completeLayers on
+// whatever came back); doing the fetch+parse once here on the server, on
+// a settled connection, avoids that whole class of failure.
+//
+// Hardcoded filename list rather than directory discovery because GCS
+// doesn't expose a listing endpoint via the public HTTPS URL. If a new
+// transition is added to the CDN, append it here.
+const TRANSITION_FILES = ["Arrow.json", "Box1.json", "Box2.json", "flash.json"];
+async function loadTransitionPreloads() {
+    const out = {};
+    await Promise.all(TRANSITION_FILES.map(async (file) => {
+        const url = `${UPSTREAM_CDN}/picker/transitions/${file}`;
+        try {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+            out[file] = await res.json();
+        } catch (err) {
+            console.warn(`[videobox-render] preload transition ${file} from CDN failed: ${err?.message || err}`);
         }
-        console.log(`[videobox-render] preloaded ${Object.keys(out).length} Lottie transitions: ${Object.keys(out).join(", ")}`);
-        return out;
-    } catch (err) {
-        console.warn(`[videobox-render] no transitions to preload (${TRANSITIONS_DIR}): ${err.message}`);
-        return {};
-    }
+    }));
+    const loaded = Object.keys(out);
+    console.log(`[videobox-render] preloaded ${loaded.length}/${TRANSITION_FILES.length} Lottie transitions from CDN: ${loaded.join(", ")}`);
+    return out;
 }
-const TRANSITIONS_PRELOAD = loadTransitionPreloads();
+const TRANSITIONS_PRELOAD = await loadTransitionPreloads();
 
 // ───────────────────────── ASSET CACHE ─────────────────────────
 // Singleflight downloader: concurrent requests for the same path collapse
