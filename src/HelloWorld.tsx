@@ -336,7 +336,7 @@ const BotwVideo: React.FC = () => {
   );
 };
 
-const BattleOverlay: React.FC<{ text: string; sceneDuration: number; slide?: number; colors: ColorScheme }> = ({ text, sceneDuration, slide = 0, colors }) => {
+const BattleOverlay: React.FC<{ text: string; sceneDuration: number; slide?: number; colors: ColorScheme; fontConfig: FontConfig; fontSize?: number }> = ({ text, sceneDuration, slide = 0, colors, fontConfig, fontSize = 95 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const enter = spring({ frame, fps, config: { damping: 200 } });
@@ -349,8 +349,13 @@ const BattleOverlay: React.FC<{ text: string; sceneDuration: number; slide?: num
   const userA = parts[0] || "";
   const userB = parts[1] || "";
 
-  const exo2 = FONT_MAP["Exo 2"];
   const anton = FONT_MAP["Anton"];
+  // User A/B names use the scene's selected font + size (active name at
+  // fontSize, inactive name scaled down, preserving the original
+  // 70/95 ratio between the two states). "VS" stays fixed — it's a
+  // graphic element, not body text the user is naming.
+  const activeSize = fontSize;
+  const inactiveSize = fontSize * (70 / 95);
 
   // Layout: VS at center (960), User A + waveform above, User B + waveform below
   const vsY = 960;
@@ -389,15 +394,15 @@ const BattleOverlay: React.FC<{ text: string; sceneDuration: number; slide?: num
         }}>
           {slide === 0 ? (
             <p style={{
-              fontFamily: exo2.fontFamily, fontWeight: 800, fontStyle: "italic",
-              fontSize: 95, color: "#38fff8",
+              fontFamily: fontConfig.fontFamily, fontWeight: fontConfig.fontWeight ?? 800, fontStyle: fontConfig.fontStyle ?? "italic",
+              fontSize: activeSize, color: "#38fff8",
               textShadow: "0 0 30px rgba(56,255,248,0.85), 0 0 15px rgba(56,255,248,0.85)",
               margin: 0, textTransform: "uppercase",
             }}>{userA}</p>
           ) : (
             <p style={{
-              fontFamily: exo2.fontFamily, fontWeight: 700, fontStyle: "italic",
-              fontSize: 70, color: "#FFFFFF", opacity: 0.5, letterSpacing: 20,
+              fontFamily: fontConfig.fontFamily, fontWeight: fontConfig.fontWeight ?? 700, fontStyle: fontConfig.fontStyle ?? "italic",
+              fontSize: inactiveSize, color: "#FFFFFF", opacity: 0.5, letterSpacing: 20,
               margin: 0, textTransform: "uppercase",
             }}>{userA}</p>
           )}
@@ -425,15 +430,15 @@ const BattleOverlay: React.FC<{ text: string; sceneDuration: number; slide?: num
         }}>
           {slide === 1 ? (
             <p style={{
-              fontFamily: exo2.fontFamily, fontWeight: 800, fontStyle: "italic",
-              fontSize: 95, color: "#fc9990",
+              fontFamily: fontConfig.fontFamily, fontWeight: fontConfig.fontWeight ?? 800, fontStyle: fontConfig.fontStyle ?? "italic",
+              fontSize: activeSize, color: "#fc9990",
               textShadow: "0 0 30px rgba(252,153,144,0.85), 0 0 15px rgba(252,153,144,0.85)",
               margin: 0, textTransform: "uppercase",
             }}>{userB}</p>
           ) : (
             <p style={{
-              fontFamily: exo2.fontFamily, fontWeight: 700, fontStyle: "italic",
-              fontSize: 70, color: "#FFFFFF", opacity: 0.5, letterSpacing: 20,
+              fontFamily: fontConfig.fontFamily, fontWeight: fontConfig.fontWeight ?? 700, fontStyle: fontConfig.fontStyle ?? "italic",
+              fontSize: inactiveSize, color: "#FFFFFF", opacity: 0.5, letterSpacing: 20,
               margin: 0, textTransform: "uppercase",
             }}>{userB}</p>
           )}
@@ -1775,7 +1780,7 @@ const SceneCard: React.FC<{ text: string; index: number; layoutIndex: number; co
 
       {/* Battle of the Week overlay */}
       {resolvedLayout.battleOverlay && (
-        <BattleOverlay text={text} sceneDuration={dur} slide={resolvedLayout.battleSlide ?? 0} colors={colors} />
+        <BattleOverlay text={text} sceneDuration={dur} slide={resolvedLayout.battleSlide ?? 0} colors={colors} fontConfig={fontConfig} fontSize={resolvedFontSize} />
       )}
 
       {/* Weekly Title overlay — date range text */}
