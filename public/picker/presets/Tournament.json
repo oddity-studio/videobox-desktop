@@ -1,0 +1,55 @@
+{
+  "seasonNumber": "01",
+  "colorScheme": {
+    "dark": "#5c24f5",
+    "light": "#7f11a7",
+    "highlight": "#ff00d0"
+  },
+  "music": "Tournament.mp3",
+  "transition": "flash.json",
+  "font": "Montserrat",
+  "overlayVideo": "rough.mp4",
+  "scenes": [
+    {
+      "text": "Tournament Starts Now!",
+      "layout": "S10 Logo",
+      "fontSize": 80
+    },
+    {
+      "text": "Brackets are set",
+      "layout": "Tourney",
+      "fontSize": 130
+    },
+    {
+      "text": "Braingotblaps Inotech3d Rasmus Sik-Trakz Eazymoney Eugenemack Aquariusi Themystery Sullymon Shabazzprod Johnrush Bryckz Swider 901beats Cannaprize\nWyndxgo Lovedead Fury-Beats Skitzo Yummi Slotlistslut Totallynotfruity Xi_Reboot_iX Dink-The-Poof Sugarpopz Mythzero GBTheGoat Relik Potion DJFontaine",
+      "layout": "Lineup",
+      "fontSize": 90,
+      "duration": 7
+    },
+    {
+      "text": "Who's taking the belt?",
+      "layout": "Belt Stomp",
+      "fontSize": 140
+    },
+    {
+      "text": "BRAIN|ESPIN\nINNOTECH3D|SYDOSYS\n1,0",
+      "layout": "Bracket",
+      "fontSize": 150
+    },
+    {
+      "text": "Record-breaking prize pool by",
+      "layout": "S12 Scene1",
+      "fontSize": 140
+    },
+    {
+      "text": "PRIZES HERE,Native Insturments.png,UnitedPlugins.png,XLN Audio.png,Apogee.png,Arturia.png,ImageLine.png,Maor Appelbaum Mastering.png,McDSP.png,Melda.png,Baby Audio.png,Landr.png",
+      "layout": "Prizes",
+      "fontSize": 150
+    },
+    {
+      "text": "ROUND ONE... FIGHT!",
+      "layout": "S10 Logo",
+      "fontSize": 80
+    }
+  ]
+}

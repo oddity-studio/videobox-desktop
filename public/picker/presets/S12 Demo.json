@@ -1,0 +1,22 @@
+{
+  "seasonNumber": "01",
+  "music": "Tournament.mp3",
+  "transition": "flash.json",
+  "font": "Dela Gothic One",
+  "overlayVideo": "Grunge.mp4",
+  "colorScheme": {
+    "dark": "#953f0c",
+    "light": "#dfbf67",
+    "highlight": "#ffaa00"
+  },
+  "scenes": [
+    { "text": "", "fontSize": 80, "layout": "S12 Logo" },
+    { "text": "New Season Starts Now", "fontSize": 150, "layout": "S12 Scene1" },
+    { "text": "Make Your Mark", "fontSize": 230, "layout": "S12 Scene2" },
+    { "text": "And Forge Your Legacy", "fontSize": 140, "layout": "Video Cube" },
+    { "text": "Using Our New Tools", "fontSize": 150, "layout": "S12 Scene3" },
+    { "text": "Sounds Packs Effects Tutorials Apps Plugins And More...", "fontSize": 150, "layout": "S12 Scene4" },
+    { "text": "Right Here Right Now", "fontSize": 150, "layout": "S12 Scene5" },
+    { "text": "", "fontSize": 80, "layout": "S12 Logo" }
+  ]
+}

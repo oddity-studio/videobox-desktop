@@ -1,0 +1,71 @@
+{
+  "seasonNumber": "01",
+  "colorScheme": {
+    "dark": "#890659",
+    "light": "#7229fa",
+    "highlight": "#ffe014"
+  },
+  "font": "Exo 2",
+  "overlayVideo": "Grunge.mp4",
+  "scenes": [
+    {
+      "text": "Apr 5th – Apr 12th",
+      "layout": "Weekly Title",
+      "fontSize": 72,
+      "duration": 5,
+      "backgroundVideo": {
+        "src": "",
+        "muted": false
+      }
+    },
+    {
+      "text": "Player1|Player1|Player1\n786|454|121",
+      "fontSize": 122,
+      "layout": "Weekly Stats 1",
+      "duration": 6
+    },
+    {
+      "text": "156|Player1",
+      "fontSize": 150,
+      "layout": "Killstreak",
+      "duration": 8,
+      "backgroundVideo": {
+        "src": "",
+        "muted": false
+      }
+    },
+    {
+      "text": "Player1|Player1|Player1\n215|655|45",
+      "fontSize": 120,
+      "layout": "Weekly Stats 2",
+      "duration": 6
+    },
+    {
+      "text": "5|Player1",
+      "fontSize": 150,
+      "layout": "King",
+      "duration": 8,
+      "backgroundVideo": {
+        "src": "",
+        "muted": false
+      }
+    },
+    {
+      "text": "",
+      "fontSize": 40,
+      "layout": "Top10",
+      "duration": 10
+    },
+    {
+      "text": "",
+      "fontSize": 150,
+      "layout": "Outro",
+      "duration": 10,
+      "backgroundVideo": {
+        "src": "",
+        "muted": false
+      }
+    }
+  ],
+  "music": "none"
+}

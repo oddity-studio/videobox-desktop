@@ -1,0 +1,27 @@
+{
+  "seasonNumber": "01",
+  "music": "none",
+  "transition": "none",
+  "font": "Dela Gothic One",
+  "colorScheme": {
+    "dark": "#1a53ff",
+    "light": "#822158",
+    "highlight": "#f9ba34"
+  },
+  "scenes": [
+    {
+      "text": "Player1|Player2",
+      "fontSize": 80,
+      "layout": "BotWeek1",
+      "duration": 30,
+      "backgroundVideo": { "src": "", "muted": false }
+    },
+    {
+      "text": "Player1|Player2",
+      "fontSize": 150,
+      "layout": "BotWeek2",
+      "duration": 30,
+      "backgroundVideo": { "src": "", "muted": false }
+    }
+  ]
+}

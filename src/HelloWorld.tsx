@@ -22,6 +22,7 @@ import {
   FONT_MAP,
   SCENE_DURATION,
   LOGO,
+  shiftHue,
 } from "./sceneUtils";
 import type { FontConfig, CharPlacement, TextMode, CustomControl, SceneLayout, ColorScheme } from "./sceneUtils";
 import { SCENE_LAYOUTS } from "./scenes";
@@ -71,6 +72,8 @@ export const isPrizesGridLayout = (index: number): boolean =>
   SCENE_LAYOUTS[index]?.prizesGrid === true;
 export const isTop10Layout = (index: number): boolean =>
   SCENE_LAYOUTS[index]?.top10 === true;
+export const isSubtitleEnabledLayout = (index: number): boolean =>
+  SCENE_LAYOUTS[index]?.subtitleEnabled === true;
 export const getLayoutDefaultDuration = (index: number): number | undefined =>
   SCENE_LAYOUTS[index]?.defaultDuration;
 export const getLayoutDefaultFontSize = (index: number): number | undefined =>
@@ -184,16 +187,115 @@ const FighterChar: React.FC<{
         right: isLeft ? undefined : "-5%",
         height: "100%",
         opacity: exitOpacity,
-        transform: `translateX(${slideX + sway}px) translateY(${bob}px) scale(${placement.scale}) scaleX(${flipX})`,
+        // flipX is NOT applied here. This box has an auto/shrink-to-fit
+        // width based on the image's intrinsic size; mirroring it directly
+        // would scale around its own anchored edge and flip which
+        // direction it extends, pushing the whole box fully off-canvas
+        // (confirmed bug — see CharPlacement.flip usages). The image is
+        // mirrored on its own below instead, which is a fixed-size box
+        // and safe to flip in place.
+        transform: `translateX(${slideX + sway}px) translateY(${bob}px) scale(${placement.scale})`,
         transformOrigin: isLeft ? "bottom left" : "bottom right",
         pointerEvents: "none" as const,
         willChange: "transform, opacity",
       }}
     >
+      {placement.doubleShadow && (
+        <>
+          {/* Outer shadow: fainter, further offset. brightness(0) recolors
+              the character's exact alpha shape to solid black without any
+              actual image processing — it's a silhouette of the cutout. */}
+          <Img
+            src={placement.src}
+            style={{
+              position: "absolute", top: 0, left: 0, height: "100%", width: "auto",
+              transform: `translate(60px, 60px) scaleX(${flipX})`,
+              filter: "brightness(0)",
+              opacity: 0.5,
+            }}
+          />
+          {/* Inner shadow: solid black, closer offset. */}
+          <Img
+            src={placement.src}
+            style={{
+              position: "absolute", top: 0, left: 0, height: "100%", width: "auto",
+              transform: `translate(30px, 30px) scaleX(${flipX})`,
+              filter: "brightness(0)",
+            }}
+          />
+        </>
+      )}
       <Img
         src={placement.src}
-        style={{ height: "100%", width: "auto", display: "block" }}
+        style={{ height: "100%", width: "auto", display: "block", transform: `scaleX(${flipX})` }}
       />
+    </div>
+  );
+};
+
+// Full-bleed background image that slowly pans horizontally across the
+// scene's duration. Oversized to 130% width so the pan never exposes a
+// canvas edge. "ltr" interpolates the visible window from the image's left
+// portion to its right portion (image itself translates +X → -X); "rtl"
+// reverses that.
+const ArenaPanLayer: React.FC<{ src: string; direction: "ltr" | "rtl"; sceneDuration?: number }> = ({ src, direction, sceneDuration = SCENE_DURATION }) => {
+  const frame = useCurrentFrame();
+  const PAN_PX = 140;
+  const range = direction === "ltr" ? [PAN_PX, -PAN_PX] : [-PAN_PX, PAN_PX];
+  const x = interpolate(frame, [0, sceneDuration], range, { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  return (
+    <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
+      <Img
+        src={src}
+        style={{
+          position: "absolute",
+          top: 0,
+          left: "-15%",
+          width: "130%",
+          height: "100%",
+          objectFit: "cover",
+          transform: `translateX(${x}px)`,
+        }}
+      />
+    </div>
+  );
+};
+
+// Canvas dimensions from Root.tsx's <Composition width={1080} height={1920} .../>.
+const CANVAS_WIDTH = 1080;
+const CANVAS_HEIGHT = 1920;
+// Must match the inline <svg height> in SlideInGraphic — used elsewhere to
+// lock lineSlide text to the stripe's vertical center.
+const STRIPE_HEIGHT_PX = 295;
+
+// One-shot decorative stripe graphic: slides in from off-canvas right,
+// eases to rest with its left edge at stopAtLeftPx, then holds. Same
+// ease-out timing as the character entrance slide (FighterChar) for
+// consistency. Rendered as inline SVG (rather than an <Img> of a static
+// pre-colored file) so the gradient can use the scene's actual
+// colorScheme.highlight, darkening slightly toward the bottom.
+const SlideInGraphic: React.FC<{ bottomPct: number; stopAtLeftPx: number; highlightColor: string }> = ({ bottomPct, stopAtLeftPx, highlightColor }) => {
+  const frame = useCurrentFrame();
+  const gradientId = React.useId();
+  const slideFrames = 20;
+  const progress = Math.min(Math.max(frame / slideFrames, 0), 1);
+  const eased = 1 - (1 - progress) * (1 - progress);
+  const left = CANVAS_WIDTH + (stopAtLeftPx - CANVAS_WIDTH) * eased;
+  const darker = `color-mix(in srgb, ${highlightColor} 75%, black 25%)`;
+  return (
+    <div style={{ position: "absolute", bottom: `${bottomPct}%`, left: `${left}px`, pointerEvents: "none" as const }}>
+      <svg xmlns="http://www.w3.org/2000/svg" width="2104" height="295" style={{ display: "block" }}>
+        <defs>
+          <linearGradient id={gradientId} x1="0%" x2="0%" y1="100%" y2="0%">
+            <stop offset="0%" stopColor={darker} />
+            <stop offset="100%" stopColor={highlightColor} />
+          </linearGradient>
+        </defs>
+        <path
+          fill={`url(#${gradientId})`}
+          d="M2024.891,294.733 L349.515,294.733 L428.225,0.982 L2103.601,0.982 L2024.891,294.733 ZM187.703,294.733 L266.413,0.982 L394.867,0.982 L316.157,294.733 L187.703,294.733 ZM74.435,294.733 L153.145,0.982 L231.437,0.982 L152.727,294.733 L74.435,294.733 ZM0.001,294.733 L78.711,0.982 L119.787,0.982 L41.077,294.733 L0.001,294.733 Z"
+        />
+      </svg>
     </div>
   );
 };
@@ -1336,12 +1438,14 @@ const Top10Overlay: React.FC<{
   );
 };
 
-const SceneCard: React.FC<{ text: string; index: number; layoutIndex: number; colors: ColorScheme; fontConfig: FontConfig; fontSize?: number; y?: number; x?: number; rotateZ?: number; rotateX?: number; perspective?: number; backgroundVideo?: Scene["backgroundVideo"]; sceneDuration?: number; overlayVideo?: string; portrait?: string }> = ({
+const SceneCard: React.FC<{ text: string; subtitle?: string; index: number; layoutIndex: number; colors: ColorScheme; fontConfig: FontConfig; secondaryFontConfig?: FontConfig; fontSize?: number; y?: number; x?: number; rotateZ?: number; rotateX?: number; perspective?: number; backgroundVideo?: Scene["backgroundVideo"]; sceneDuration?: number; overlayVideo?: string; portrait?: string }> = ({
   text,
+  subtitle,
   index,
   layoutIndex,
   colors,
   fontConfig,
+  secondaryFontConfig,
   fontSize = 150,
   y: yOffset = 0,
   x: xOffset = 0,
@@ -1415,16 +1519,33 @@ const SceneCard: React.FC<{ text: string; index: number; layoutIndex: number; co
     }
   }
 
+  const pan = resolvedLayout.backgroundPan;
+
   return (
     <AbsoluteFill
       style={{
         justifyContent: "center",
         alignItems: "center",
-        background,
+        // Same rule as TitleCard: a backgroundPan image moves the computed
+        // gradient to a translucent overlay below it. No pan set → the
+        // gradient stays opaque exactly as before.
+        background: pan ? "#000000" : background,
       }}
     >
-      {/* Background video layer */}
-      {backgroundVideo && (
+      {pan && <ArenaPanLayer src={pan.src} direction={pan.direction} sceneDuration={dur} />}
+      {pan && <AbsoluteFill style={{ background, opacity: 0.6 }} />}
+
+      {/* Background video layer — rendered before SlideInGraphic (below
+          it in the stack), same as the pan/image layer above. Gate on
+          .src specifically, not just the object's truthiness — { src: "",
+          muted } is the normal "no video" shape left behind once a blob:
+          URL gets stripped on save (see Editor.tsx's prop-persist effect),
+          and an empty src here used to make <Video>/<video> try to load
+          the bare CDN root as a video on every single frame, which is
+          just slow enough per-frame to make the whole render crawl (and
+          likely caused the "Failed to fetch" reports on Battle of the
+          Week, which carries this exact shape). */}
+      {backgroundVideo?.src && (
         <AbsoluteFill
           style={{
             overflow: "hidden",
@@ -1494,11 +1615,22 @@ const SceneCard: React.FC<{ text: string; index: number; layoutIndex: number; co
         </AbsoluteFill>
       )}
 
+      {resolvedLayout.slideInGraphic && (
+        <SlideInGraphic
+          bottomPct={resolvedLayout.slideInGraphic.bottomPct}
+          stopAtLeftPx={resolvedLayout.slideInGraphic.stopAtLeftPx}
+          highlightColor={colors.highlight}
+        />
+      )}
+
       {/* Polka-dot multiply overlay — sits over the gradient/grunge background */}
       {resolvedLayout.polkaDotOverlay && <PolkaDotOverlay />}
 
-      {/* Sound waveform for scroll-mode scenes — behind characters */}
-      {td?.mode === "scroll" && <SoundWaveform color={colors.light} />}
+      {/* Sound waveform for scroll-mode scenes — behind characters. Uses
+          highlight (not light) so it stays visible with mixBlendMode:
+          "screen" against a light-focused background — light-on-light
+          washed out to invisible once Scene4 switched to a light gradient. */}
+      {td?.mode === "scroll" && <SoundWaveform color={colors.highlight} />}
 
       {/* Static background image layer (e.g. arena) */}
       {resolvedLayout.backgroundImageStatic && (
@@ -1875,6 +2007,160 @@ const SceneCard: React.FC<{ text: string; index: number; layoutIndex: number; co
           );
         }
 
+        if (textMode === "lineSlide") {
+          // Text is NOT split into one-word-per-line here — it wraps
+          // normally inside the 80%-width box. Only \n in the source text
+          // creates a new line; each line slides in from the right with a
+          // per-line stagger, independent of the word-by-word reveal used
+          // by every other mode.
+          const rawLines = (text || "").split("\n");
+          const lineDelayFrames = 8;
+          const slideFrames = 20;
+          // Lock the block's vertical CENTER (not its top edge) to the
+          // slide-in stripe's center — translateY(-50%) shifts by half of
+          // the box's own (content-dependent) height, so however many
+          // lines render, the middle line of text always lands on the
+          // stripe's middle. Falls back to screen-center if this layout
+          // has no stripe.
+          const stripeBottomPct = resolvedLayout.slideInGraphic?.bottomPct;
+          const anchorTopPx = stripeBottomPct != null
+            ? CANVAS_HEIGHT * (1 - stripeBottomPct / 100) - STRIPE_HEIGHT_PX / 2
+            : CANVAS_HEIGHT / 2;
+          // Bottom edge of the stripe (or, with no stripe, half a stripe-
+          // height below the fallback center) — secondaryCaption sits a
+          // fixed gap below this.
+          const stripeBottomEdgePx = anchorTopPx + STRIPE_HEIGHT_PX / 2;
+          return (
+            <>
+              <div
+                style={{
+                  position: "absolute",
+                  left: "10%",
+                  width: "80%",
+                  top: `${anchorTopPx}px`,
+                  transform: `translateY(calc(-50% + ${y}px)) translateX(${resolvedX}px)`,
+                  textAlign: "right",
+                  opacity: exit,
+                  zIndex: 12,
+                }}
+              >
+                {rawLines.map((line, li) => {
+                  const lineFrame = Math.max(0, frame - li * lineDelayFrames);
+                  const progress = Math.min(lineFrame / slideFrames, 1);
+                  const eased = 1 - (1 - progress) * (1 - progress);
+                  const slideX = (1 - eased) * 600;
+                  const lineOpacity = interpolate(progress, [0, 0.4], [0, 1], { extrapolateRight: "clamp" });
+                  return (
+                    <p
+                      key={li}
+                      style={{
+                        fontSize: resolvedFontSize,
+                        fontFamily: fontConfig.fontFamily,
+                        fontWeight: fontConfig.fontWeight ?? 700,
+                        fontStyle: fontConfig.fontStyle ?? "normal",
+                        color: textColor,
+                        margin: 0,
+                        lineHeight: fontConfig.lineHeight ?? 1.1,
+                        textTransform: "uppercase",
+                        textShadow: textGlow,
+                        opacity: lineOpacity,
+                        transform: `translateX(${slideX}px)`,
+                      }}
+                    >
+                      {line}
+                    </p>
+                  );
+                })}
+              </div>
+              {resolvedLayout.subtitleEnabled && subtitle && (() => {
+                const subFont = secondaryFontConfig ?? fontConfig;
+                return (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: `${stripeBottomEdgePx + 160}px`,
+                      // % of the composition frame, not vw/vh — those units
+                      // resolve against the real browser viewport, which in
+                      // the editor's <Player> preview is NOT the same as the
+                      // 1080x1920 composition canvas (only coincidentally
+                      // matches during a server-side renderStill, where the
+                      // headless viewport is set to the composition size).
+                      left: "15%",
+                      width: "70%",
+                      textAlign: "center",
+                      opacity: enter * exit,
+                      zIndex: 12,
+                    }}
+                  >
+                    <p
+                      style={{
+                        margin: 0,
+                        // 50pt smaller than the main caption text, but still
+                        // tracks the scene's fontSize input since it's
+                        // computed FROM resolvedFontSize, not a literal.
+                        fontSize: resolvedFontSize - 50,
+                        fontFamily: subFont.fontFamily,
+                        fontWeight: subFont.fontWeight ?? 700,
+                        fontStyle: subFont.fontStyle ?? "normal",
+                        // colorScheme.dark, hue rotated -36deg (10% of
+                        // 360deg) and slightly brighter (+10% lightness).
+                        color: shiftHue(colors.dark, -36, 10),
+                        lineHeight: subFont.lineHeight ?? 1.1,
+                        textTransform: "uppercase",
+                        // Fixed, independent of textGlow — the main
+                        // caption's shadow (textGlow, set per-scene via
+                        // customStyle) is tuned separately and shouldn't
+                        // drag this along with it.
+                        textShadow: "5px 5px 2px rgba(0,0,0,0.85)",
+                      }}
+                    >
+                      {subtitle}
+                    </p>
+                  </div>
+                );
+              })()}
+            </>
+          );
+        }
+
+        if (textMode === "marquee") {
+          // Single continuous line, scrolling right-to-left across the
+          // whole scene duration. No word-by-word reveal, no "shift up to
+          // keep newest word visible" — the entire string is always fully
+          // rendered, just panning across the frame.
+          const marqueeText = (text || "").replace(/\n/g, " ");
+          // Generous off-screen overshoot on both ends — we don't measure
+          // the rendered text width, so this just needs to comfortably
+          // clear the canvas for any reasonably-sized scene text.
+          const marqueeX = interpolate(frame, [0, dur], [CANVAS_WIDTH + 100, -4000]);
+          return (
+            <div style={{ position: "absolute", inset: 0, overflow: "hidden", zIndex: 12 }}>
+              <p
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: 0,
+                  margin: 0,
+                  whiteSpace: "nowrap",
+                  fontSize: resolvedFontSize,
+                  fontFamily: fontConfig.fontFamily,
+                  fontWeight: fontConfig.fontWeight ?? 700,
+                  fontStyle: fontConfig.fontStyle ?? "normal",
+                  color: textColor,
+                  lineHeight: fontConfig.lineHeight ?? 1.0,
+                  letterSpacing: 8,
+                  textTransform: "uppercase",
+                  textShadow: textGlow,
+                  opacity: exit,
+                  transform: `translateY(calc(-50% + ${resolvedY}px)) translateX(${marqueeX}px)`,
+                }}
+              >
+                {marqueeText}
+              </p>
+            </div>
+          );
+        }
+
         const words = text.split(" ");
         const totalWords = words.length;
         const revealWindow = dur - 50;
@@ -1902,18 +2188,36 @@ const SceneCard: React.FC<{ text: string; index: number; layoutIndex: number; co
           ? interpolate(frame, [0, dur], [500, -totalWords * lineHeight * 0.6])
           : 0;
         const shiftUp = isFlat ? 0 : isScroll ? -scrollOffset : Math.max(0, visibleProgress - 1) * lineHeight;
+        // Left-aligned word stacks anchor to an explicit screen-edge offset
+        // instead of the default shrink-to-fit-then-center layout (which
+        // sizes the container to the widest word and centers THAT on
+        // screen — "left align" within it wouldn't reach the actual edge).
+        const isLeftAligned = td?.align === "left";
 
         return (
           <div
-            style={{
-              opacity: isScroll ? 1 : exit,
-              transform: isFlat
-                ? `rotateZ(${a.z}deg) rotateX(${a.x}deg) translateX(${resolvedX}px) translateY(${resolvedY}px)`
-                : `perspective(${perspectiveVal}px) rotateZ(${a.z}deg) rotateX(${a.x}deg) translateX(${resolvedX}px) translateY(${y}px)`,
-              textAlign: "center",
-              padding: "0 80px",
-              zIndex: 12,
-            }}
+            style={
+              isLeftAligned
+                ? {
+                    position: "absolute",
+                    left: `${td?.leftAnchorPx ?? 30}px`,
+                    opacity: isScroll ? 1 : exit,
+                    transform: isFlat
+                      ? `rotateZ(${a.z}deg) rotateX(${a.x}deg) translateY(${resolvedY}px)`
+                      : `perspective(${perspectiveVal}px) rotateZ(${a.z}deg) rotateX(${a.x}deg) translateY(${y}px)`,
+                    textAlign: "left",
+                    zIndex: 12,
+                  }
+                : {
+                    opacity: isScroll ? 1 : exit,
+                    transform: isFlat
+                      ? `rotateZ(${a.z}deg) rotateX(${a.x}deg) translateX(${resolvedX}px) translateY(${resolvedY}px)`
+                      : `perspective(${perspectiveVal}px) rotateZ(${a.z}deg) rotateX(${a.x}deg) translateX(${resolvedX}px) translateY(${y}px)`,
+                    textAlign: td?.align ?? "center",
+                    padding: "0 80px",
+                    zIndex: 12,
+                  }
+            }
           >
             <div
               style={{
@@ -2045,15 +2349,25 @@ const PrizesCard: React.FC<{ colorScheme: VideoProps["colorScheme"]; sceneDurati
 const TitleCard: React.FC<{ colorScheme: VideoProps["colorScheme"]; layoutIndex: number; fontConfig: FontConfig; text?: string; fontSize?: number }> = ({ colorScheme, layoutIndex, fontConfig, text, fontSize = 100 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const resolvedLayout = SCENE_LAYOUTS[layoutIndex % SCENE_LAYOUTS.length];
+  const pan = resolvedLayout.backgroundPan;
+  const gradient = `linear-gradient(135deg, #000000, ${colorScheme.dark})`;
 
   return (
     <AbsoluteFill
       style={{
         justifyContent: "center",
         alignItems: "center",
-        background: `linear-gradient(135deg, #000000, ${colorScheme.dark})`,
+        // When a backgroundPan image is set, it becomes the base layer and
+        // the gradient renders as a translucent overlay below (see the
+        // div right after); otherwise the gradient stays opaque exactly
+        // as it always has, so non-panning title cards are unaffected.
+        background: pan ? "#000000" : gradient,
       }}
     >
+      {pan && <ArenaPanLayer src={pan.src} direction={pan.direction} />}
+      {pan && <AbsoluteFill style={{ background: gradient, opacity: 0.6 }} />}
+
       <CharacterLayer layoutIndex={layoutIndex} darkColor={colorScheme.dark} />
 
       {/* Explosion burst on logo impact */}
@@ -2112,13 +2426,14 @@ const TitleCard: React.FC<{ colorScheme: VideoProps["colorScheme"]; layoutIndex:
         // Subtle breathe after landing — very minimal
         const breathe = stomp >= 0.95 ? Math.sin((frame - 20) * 0.03) * 0.015 : 0;
         const glowIntensity = interpolate(stomp, [0, 0.3, 1], [80, 50, 20]);
+        const logoOffsetY = resolvedLayout.logoOffsetY ?? 0;
         return (
           <div
             style={{
               position: "absolute",
               top: "50%",
               left: "50%",
-              transform: `translate(-50%, -50%) scale(${logoScale + breathe})`,
+              transform: `translate(-50%, -50%) translateY(${logoOffsetY}px) scale(${logoScale + breathe})`,
               opacity: logoOpacity,
               zIndex: 20,
               filter: `drop-shadow(0 0 ${glowIntensity}px rgba(255,255,255,0.8)) drop-shadow(0 0 ${glowIntensity * 2}px ${colorScheme.highlight})`,
@@ -2178,8 +2493,12 @@ const TitleCard: React.FC<{ colorScheme: VideoProps["colorScheme"]; layoutIndex:
 // data model. The shape is intentionally loose so the editor's <Player>
 // preview (which doesn't ship this prop) still typechecks.
 type HelloWorldProps = VideoProps & { transitions?: Record<string, unknown> };
-export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, music = "Tournament.mp3", transition = "flash.json", font = "Dela Gothic One", overlayVideo = "none", transitions }) => {
+export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, music = "Tournament.mp3", transition = "flash.json", font = "Dela Gothic One", secondaryFont, overlayVideo = "none", transitions }) => {
   const fontConfig = FONT_MAP[font] || FONT_MAP["Dela Gothic One"];
+  // Falls back to the primary font when unset — currently used for the
+  // Subtitle text in S13 Caption 1-4, but generic enough to reuse for any
+  // future secondary text element.
+  const secondaryFontConfig = FONT_MAP[secondaryFont || ""] || fontConfig;
 
   // Compute cumulative start positions for variable-duration scenes
   const sceneStarts: number[] = [];
@@ -2246,7 +2565,7 @@ export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, mus
               ) : sceneLayout.titleCard ? (
                 <TitleCard colorScheme={colorScheme} fontConfig={fontConfig} layoutIndex={sceneLayoutIndex} text={scene.text} fontSize={scene.fontSize} />
               ) : (
-                <SceneCard text={scene.text} index={i} layoutIndex={sceneLayoutIndex} colors={colorScheme} fontConfig={fontConfig} fontSize={scene.fontSize} y={scene.y} x={scene.x} rotateZ={scene.rotateZ} rotateX={scene.rotateX} perspective={scene.perspective} backgroundVideo={scene.backgroundVideo} sceneDuration={sceneFrames} overlayVideo={overlayVideo} portrait={scene.portrait} />
+                <SceneCard text={scene.text} subtitle={scene.subtitle} index={i} layoutIndex={sceneLayoutIndex} colors={colorScheme} fontConfig={fontConfig} secondaryFontConfig={secondaryFontConfig} fontSize={scene.fontSize} y={scene.y} x={scene.x} rotateZ={scene.rotateZ} rotateX={scene.rotateX} perspective={scene.perspective} backgroundVideo={scene.backgroundVideo} sceneDuration={sceneFrames} overlayVideo={overlayVideo} portrait={scene.portrait} />
               )}
             </Sequence>
             {/* Transition overlay */}

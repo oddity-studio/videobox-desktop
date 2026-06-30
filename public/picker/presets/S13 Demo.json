@@ -1,0 +1,75 @@
+{
+  "seasonNumber": "01",
+  "colorScheme": {
+    "dark": "#007bff",
+    "light": "#000000",
+    "highlight": "#a6ff00"
+  },
+  "music": "Tournament.mp3",
+  "transition": "Arrow.json",
+  "font": "Chakra Petch",
+  "overlayVideo": "Grunge.mp4",
+  "scenes": [
+    {
+      "text": "",
+      "layout": "S13 Logo",
+      "fontSize": 80
+    },
+    {
+      "text": "SEASON XIII",
+      "layout": "S13 Caption 1",
+      "fontSize": 150,
+      "subtitle": "STARTS NOW!"
+    },
+    {
+      "text": "Make Your Mark",
+      "layout": "S13 Head On",
+      "fontSize": 230
+    },
+    {
+      "text": "And Forge Your Legacy",
+      "layout": "S13 Left Align",
+      "fontSize": 140
+    },
+    {
+      "text": "With Our New Tools",
+      "layout": "S13 Marquee",
+      "fontSize": 150,
+      "duration": 4
+    },
+    {
+      "text": "Sounds Packs Effects Tutorials Apps Plugins And More...",
+      "layout": "S13 Scroll",
+      "fontSize": 150
+    },
+    {
+      "text": "NEW FEATURES",
+      "layout": "S13 Caption 3",
+      "fontSize": 130,
+      "subtitle": "REIMAGINED BATTLE SYSTEM"
+    },
+    {
+      "text": "NEW FEATURES",
+      "fontSize": 130,
+      "layout": "S13 Caption 4",
+      "subtitle": "LEVEL-UP CHARACTERS"
+    },
+    {
+      "text": "BRAND NEW ARENA",
+      "fontSize": 150,
+      "layout": "S13 Cover",
+      "subtitle": "asdasdas"
+    },
+    {
+      "text": "AND INFINITE POSSIBILITIES",
+      "fontSize": 90,
+      "layout": "S13 Caption 2"
+    },
+    {
+      "text": "",
+      "fontSize": 100,
+      "layout": "S13 Logo"
+    }
+  ],
+  "secondaryFont": "Rajdhani"
+}

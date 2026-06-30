@@ -233,8 +233,8 @@ const JOB_TTL_MS = 60 * 60 * 1000;
 // Per-job hard timeout. If a render hangs past this it gets cancelled
 // automatically so the queue doesn't get stuck behind one wedged job.
 // Configurable per-request via `?timeout=<seconds>`; capped at the max.
-const DEFAULT_RENDER_TIMEOUT_MS = 30 * 60 * 1000;   // 30 min
-const MAX_RENDER_TIMEOUT_MS = 60 * 60 * 1000;       // 60 min
+const DEFAULT_RENDER_TIMEOUT_MS = 60 * 60 * 1000;   // 60 min
+const MAX_RENDER_TIMEOUT_MS = 90 * 60 * 1000;       // 90 min — leaves headroom for ?timeout= overrides above the default
 // Grace period after cancel() before the queue gives up waiting for the
 // in-flight job to settle. Stops a stuck cancel from blocking other jobs.
 const CANCEL_GRACE_MS = 60 * 1000;                  // 1 min
@@ -627,6 +627,15 @@ app.get(/^\/cache\/(.+)$/, async (req, res) => {
     try {
         const filePath = await ensureCached(relPath);
         res.setHeader("Cache-Control", "public, max-age=3600");
+        // The headless Chromium that renders the bundle during server-side
+        // renders serves it from a different local port than this Express
+        // app, so video/image fetches into /cache are cross-origin from its
+        // perspective. Without this header the browser silently blocks the
+        // response (net::ERR_FAILED) and Remotion's per-frame media wait
+        // never resolves — the render doesn't fail, it just crawls at a
+        // few percent progress per minute. Safe to open wide: this proxy
+        // only ever re-serves already-public CDN content.
+        res.setHeader("Access-Control-Allow-Origin", "*");
         res.sendFile(filePath);
     } catch (err) {
         const msg = err?.message || String(err);
