@@ -14,6 +14,7 @@ tsconfig.tsbuildinfo
 # public/ + nested negations.
 public/*
 !public/picker
+!public/assets-manifest.json
 public/picker/*
 !public/picker/presets
 .env
@@ -24,3 +25,6 @@ public/picker/*
 env/
 *.json.key
 *-signer.json
+# Electron build outputs
+dist-electron/
+dist-packages/

@@ -78,10 +78,12 @@ const FEED_BASE_URL = process.env.NEXT_PUBLIC_FEED_BASE_URL || "/audeobox-feeds"
 const RENDER_CONCURRENCY = Math.max(1, Math.min(8,
     Number.parseInt(process.env.RENDER_CONCURRENCY || "", 10) || 1));
 
-// On-disk cache for CDN assets. Lives for the container's lifetime; warmed
-// per-render before renderMedia starts so all asset requests from inside
-// the bundle hit local disk instantly.
-const ASSET_CACHE_DIR = path.join(os.tmpdir(), "videobox-asset-cache");
+// On-disk cache for CDN assets. In Docker the cache lives for the
+// container's lifetime (tmpdir). In the desktop Electron app, an explicit
+// ASSET_CACHE_DIR is passed pointing to a persistent userData directory so
+// assets survive app restarts and don't need re-downloading.
+const ASSET_CACHE_DIR = process.env.ASSET_CACHE_DIR
+    ?? path.join(os.tmpdir(), "videobox-asset-cache");
 fs.mkdirSync(ASSET_CACHE_DIR, { recursive: true });
 
 // Lottie transition JSONs are preloaded once at server startup from the

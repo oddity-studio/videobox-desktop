@@ -1,0 +1,57 @@
+appId: com.audeobox.videobox
+productName: Videobox
+
+copyright: Copyright © 2024 Audeobox
+
+directories:
+  output: dist-packages
+
+# Keep everything as real files so:
+#  - Node module resolution works from server.mjs (finds node_modules/ in parent dirs)
+#  - @remotion/bundler's webpack can read .ts source files
+#  - Native .node binaries load without asar extraction
+asar: false
+
+files:
+  - dist-electron/**
+  - out/**
+  - src/**
+  - server/**
+  - public/**
+  - node_modules/**
+  - package.json
+  - tsconfig.json
+
+# Exclude build artifacts and secrets that don't belong in the package
+ignore:
+  - "^/\\.git"
+  - "^/\\.next"
+  - "^/deploy"
+  - "^/env"
+  - "^/dist-packages"
+  - "^/node_modules/\\.cache"
+  - "\\.md$"
+  - "\\.dockerignore$"
+  - "^/electron$"
+  - "^/tsconfig\\.electron\\.json$"
+
+win:
+  target: nsis
+  # icon: public/icon.ico  # Uncomment once a 256×256 .ico is added to public/
+
+mac:
+  target:
+    - target: dmg
+    - target: zip
+  category: public.app-category.video
+  # icon: public/icon.icns  # Uncomment once a 1024×1024 .icns is added to public/
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+linux:
+  target: AppImage
+  category: Video

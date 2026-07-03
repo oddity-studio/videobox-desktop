@@ -13,6 +13,17 @@ const nextConfig = {
     NEXT_PUBLIC_FEED_BASE_URL: feedBaseUrl,
   },
   images: { unoptimized: true },
+  // Rewrites only apply during `next dev` — output: "export" ignores them at
+  // build time. They let the Electron dev workflow (Next.js hot-reload server
+  // at :3000) forward render API calls to the render server at :3001, exactly
+  // as nginx does in the Docker deployment.
+  async rewrites() {
+    return [
+      { source: "/api/render", destination: "http://localhost:3001/render" },
+      { source: "/api/render/:path*", destination: "http://localhost:3001/render/:path*" },
+      { source: "/audeobox-feeds/:path*", destination: "https://www.audeobox.com/api/feeds/:path*" },
+    ];
+  },
 };
 
 export default nextConfig;
