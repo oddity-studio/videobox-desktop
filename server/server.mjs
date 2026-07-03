@@ -228,6 +228,15 @@ async function prewarmAssets(inputProps) {
 // /usr/bin/chromium (the Debian package) because the audeobox network has
 // broken outbound IPv4 and chrome-headless-shell can't be fetched on demand.
 const BROWSER_EXECUTABLE = process.env.BROWSER_EXECUTABLE || null;
+// Which browser build Remotion downloads/uses when BROWSER_EXECUTABLE is
+// unset. The default "headless-shell" is small but CANNOT DECODE H.264 —
+// <Video>/<Gif> elements freeze on their first frame in renders. The
+// desktop Electron app sets CHROME_MODE=chrome-for-testing (full Chrome,
+// all codecs). Docker doesn't care: BROWSER_EXECUTABLE points at system
+// chromium there, which bypasses this entirely.
+const CHROME_MODE = process.env.CHROME_MODE === "chrome-for-testing"
+    ? "chrome-for-testing"
+    : "headless-shell";
 // How long to keep finished/failed job records (and any unsent mp4 files)
 // before reaping. 1 hour is enough to recover from a flaky download and
 // not so long that disk usage runs away.
@@ -375,6 +384,7 @@ async function renderFull({ job, serveUrl, composition, inputProps, outputLocati
         outputLocation,
         inputProps,
         browserExecutable: BROWSER_EXECUTABLE,
+        chromeMode: CHROME_MODE,
         chromiumOptions: { headless: true },
         // Configurable via RENDER_CONCURRENCY env var. Default 1 because
         // resource-tight hosts (like a 2-core / 2 GB WSL VM) can't keep a
@@ -471,6 +481,7 @@ async function runRender(job, inputProps, mode) {
             id: COMPOSITION_ID,
             inputProps,
             browserExecutable: BROWSER_EXECUTABLE,
+            chromeMode: CHROME_MODE,
         });
         if (job.cancelled) throw new Error("cancelled");
         const fps = composition.fps || 60;
@@ -529,6 +540,7 @@ async function runRender(job, inputProps, mode) {
                     inputProps,           // full props — keeps scene indices aligned
                     frameRange: [sceneStart, sceneEnd],
                     browserExecutable: BROWSER_EXECUTABLE,
+                    chromeMode: CHROME_MODE,
                     chromiumOptions: { headless: true },
                     // Configurable — see note in renderFull().
                     concurrency: RENDER_CONCURRENCY,
@@ -781,7 +793,8 @@ setInterval(() => {
     // chromium is already on disk.
     if (!BROWSER_EXECUTABLE) {
         try {
-            await ensureBrowser();
+            console.log(`[videobox-render] ensuring browser (chromeMode=${CHROME_MODE})…`);
+            await ensureBrowser({ chromeMode: CHROME_MODE });
         } catch (err) {
             console.warn("[videobox-render] ensureBrowser failed (will retry on demand):", err?.message || err);
         }

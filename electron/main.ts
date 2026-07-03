@@ -54,6 +54,10 @@ function startRenderServer(): void {
       PROJECT_DIR: root(),
       ASSET_CACHE_DIR: assetCacheDir,
       OUTPUT_DIR: outputDir,
+      // Full Chrome, not headless-shell: headless-shell can't decode H.264,
+      // which froze <Video>/<Gif> layers (overlays, fire effects) on a
+      // single frame in rendered output.
+      CHROME_MODE: "chrome-for-testing",
       UPSTREAM_CDN:
         "https://storage.googleapis.com/audeobox-cdn/videobox",
     },
@@ -144,7 +148,15 @@ function startUIServer(): void {
 
   uiServer = http.createServer((req, res) => {
     const parsed = url.parse(req.url ?? "/");
-    const pathname = parsed.pathname ?? "/";
+    // Decode %20 etc. — preset files have spaces in their names
+    // ("S13 Demo.json") and fetch() sends them percent-encoded.
+    let pathname: string;
+    try {
+      pathname = decodeURIComponent(parsed.pathname ?? "/");
+    } catch {
+      res.writeHead(400).end("Bad request");
+      return;
+    }
     const search = parsed.search ?? "";
 
     // /api/render and /api/render/* → render server
@@ -165,6 +177,11 @@ function startUIServer(): void {
 
     // Static files from out/
     let filePath = path.join(outDir, pathname);
+    // Decoded paths could contain ".." — never serve outside out/.
+    if (!path.resolve(filePath).startsWith(path.resolve(outDir))) {
+      res.writeHead(403).end("Forbidden");
+      return;
+    }
     try {
       if (fs.statSync(filePath).isDirectory()) {
         filePath = path.join(filePath, "index.html");
