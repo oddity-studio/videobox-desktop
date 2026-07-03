@@ -13,6 +13,15 @@ import {
   // ships H.264). It also falls back to plain <video> in @remotion/player so
   // the editor preview behaves identically.
   OffthreadVideo as Video,
+  // Frame-synced <video> wrapper with loop support. Used ONLY during server
+  // renders for looping media (overlay, loopVideo layouts, fire webp): plain
+  // <video autoPlay>/<img> play on WALL CLOCK, which is undefined during a
+  // render — frames aren't captured in real time, so the media raced through
+  // its whole sequence in a few output frames ("twitching"). Preview keeps
+  // the cheap native elements.
+  Html5Video,
+  AnimatedImage,
+  getRemotionEnvironment,
   Audio,
 } from "remotion";
 import type { VideoProps, Scene } from "./types";
@@ -1118,21 +1127,43 @@ const SlideLinesOverlay: React.FC<{
             const elapsed = slideFrame - triggerFrame;
             const visible = elapsed >= 0 && elapsed < fireDuration;
             if (!visible) return null;
+            const fireStyle: React.CSSProperties = {
+              position: "absolute",
+              left: "50%",
+              top: `${50 + li * rowH}px`,
+              transform: "translateX(-50%) scale(1.3)",
+              height: rowH,
+              objectFit: "contain",
+              pointerEvents: "none",
+              zIndex: -1,
+              filter: `hue-rotate(${hueShift}deg)`,
+            };
+            if (getRemotionEnvironment().isRendering) {
+              // An animated webp in a plain <img> plays on wall clock, which
+              // is meaningless during a server render (frames aren't captured
+              // in real time) — the flames raced through the whole animation
+              // in a couple of output frames. AnimatedImage decodes the webp
+              // and shows the exact frame for the current timeline position.
+              // slideFrame runs faster than the real clock (compressed so all
+              // entrances finish 1s early), so convert the trigger back to
+              // real frames for the Sequence start.
+              const slideRate = sceneDuration > fps ? sceneDuration / (sceneDuration - fps) : 1;
+              const realTrigger = Math.round(triggerFrame / slideRate);
+              return (
+                <Sequence key={`fire-${li}-${triggerFrame}`} from={realTrigger} layout="none">
+                  <AnimatedImage
+                    src={assetUrl(`firedash.webp?i=${li}`)}
+                    loopBehavior="pause-after-finish"
+                    style={fireStyle}
+                  />
+                </Sequence>
+              );
+            }
             return (
               <img
                 key={`fire-${li}-${triggerFrame}`}
                 src={assetUrl(`firedash.webp?i=${li}`)}
-                style={{
-                  position: "absolute",
-                  left: "50%",
-                  top: `${50 + li * rowH}px`,
-                  transform: "translateX(-50%) scale(1.3)",
-                  height: rowH,
-                  objectFit: "contain",
-                  pointerEvents: "none",
-                  zIndex: -1,
-                  filter: `hue-rotate(${hueShift}deg)`,
-                }}
+                style={fireStyle}
               />
             );
           });
@@ -1556,27 +1587,49 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; index: number; layo
           }}
         >
           {resolvedLayout.loopVideo ? (
-            <video
-              src={assetUrl(backgroundVideo.src)}
-              autoPlay
-              loop
-              muted
-              playsInline
-              style={
-                resolvedLayout.videoFit === "contain"
-                  ? {
-                      height: "100%",
-                      width: "auto",
-                      transform: `scale(${backgroundVideo.scale ?? 1})`,
-                    }
-                  : {
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                      transform: `scale(${backgroundVideo.scale ?? 1})`,
-                    }
-              }
-            />
+            getRemotionEnvironment().isRendering ? (
+              <Html5Video
+                src={assetUrl(backgroundVideo.src)}
+                loop
+                muted
+                style={
+                  resolvedLayout.videoFit === "contain"
+                    ? {
+                        height: "100%",
+                        width: "auto",
+                        transform: `scale(${backgroundVideo.scale ?? 1})`,
+                      }
+                    : {
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                        transform: `scale(${backgroundVideo.scale ?? 1})`,
+                      }
+                }
+              />
+            ) : (
+              <video
+                src={assetUrl(backgroundVideo.src)}
+                autoPlay
+                loop
+                muted
+                playsInline
+                style={
+                  resolvedLayout.videoFit === "contain"
+                    ? {
+                        height: "100%",
+                        width: "auto",
+                        transform: `scale(${backgroundVideo.scale ?? 1})`,
+                      }
+                    : {
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                        transform: `scale(${backgroundVideo.scale ?? 1})`,
+                      }
+                }
+              />
+            )
           ) : (
             <Video
               src={assetUrl(backgroundVideo.src)}
@@ -2516,14 +2569,23 @@ export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, mus
       {/* Global screen-blended video overlay across entire composition */}
       {overlayVideo && overlayVideo !== "none" && (
         <AbsoluteFill style={{ mixBlendMode: "screen", zIndex: 100, pointerEvents: "none" as const }}>
-          <video
-            src={assetUrl(overlayVideo)}
-            autoPlay
-            loop
-            muted
-            playsInline
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
+          {getRemotionEnvironment().isRendering ? (
+            <Html5Video
+              src={assetUrl(overlayVideo)}
+              loop
+              muted
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          ) : (
+            <video
+              src={assetUrl(overlayVideo)}
+              autoPlay
+              loop
+              muted
+              playsInline
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          )}
         </AbsoluteFill>
       )}
 
