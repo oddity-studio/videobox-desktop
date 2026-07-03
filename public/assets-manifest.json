@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "comment": "Assets prefetched on first desktop app launch. All paths are relative to UPSTREAM_CDN. Expand this list when new presets are added.",
+  "comment": "Assets prefetched on first desktop app launch. Paths are relative to UPSTREAM_CDN and mirror its layout: character art and overlays at the root, music under picker/music/, transitions under picker/transitions/. Expand when new presets are added.",
   "assets": [
     "s13-Arena.png",
     "s13-Logo.webp",
@@ -15,11 +15,11 @@
     "s13-Maxx.webp",
     "s13-Nova.webp",
     "s13-Pyron.webp",
-    "Tournament.mp3",
     "Grunge.mp4",
-    "Arrow.json",
-    "Box1.json",
-    "Box2.json",
-    "flash.json"
+    "picker/music/Tournament.mp3",
+    "picker/transitions/Arrow.json",
+    "picker/transitions/Box1.json",
+    "picker/transitions/Box2.json",
+    "picker/transitions/flash.json"
   ]
 }

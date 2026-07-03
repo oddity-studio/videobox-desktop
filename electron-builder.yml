@@ -12,6 +12,9 @@ directories:
 #  - Native .node binaries load without asar extraction
 asar: false
 
+# Exclusions live here too — electron-builder has no root "ignore" key;
+# negated globs inside "files" are the supported way to keep secrets and
+# build artifacts out of the package.
 files:
   - dist-electron/**
   - out/**
@@ -21,19 +24,15 @@ files:
   - node_modules/**
   - package.json
   - tsconfig.json
-
-# Exclude build artifacts and secrets that don't belong in the package
-ignore:
-  - "^/\\.git"
-  - "^/\\.next"
-  - "^/deploy"
-  - "^/env"
-  - "^/dist-packages"
-  - "^/node_modules/\\.cache"
-  - "\\.md$"
-  - "\\.dockerignore$"
-  - "^/electron$"
-  - "^/tsconfig\\.electron\\.json$"
+  - "!.git/**"
+  - "!.next/**"
+  - "!deploy/**"
+  - "!env/**"
+  - "!dist-packages/**"
+  - "!node_modules/.cache/**"
+  - "!electron/**"
+  - "!tsconfig.electron.json"
+  - "!**/*.md"
 
 win:
   target: nsis
