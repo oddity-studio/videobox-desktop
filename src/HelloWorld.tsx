@@ -13,15 +13,20 @@ import {
   // ships H.264). It also falls back to plain <video> in @remotion/player so
   // the editor preview behaves identically.
   OffthreadVideo as Video,
-  // Frame-synced <video> wrapper with loop support. Used ONLY during server
-  // renders for looping media (overlay, loopVideo layouts, fire webp): plain
-  // <video autoPlay>/<img> play on WALL CLOCK, which is undefined during a
-  // render — frames aren't captured in real time, so the media raced through
-  // its whole sequence in a few output frames ("twitching"). Preview keeps
-  // the cheap native elements.
-  Html5Video,
+  // Used ONLY during server renders (gated on frameSyncMedia) for looping
+  // media: plain <video autoPlay>/<img> play on WALL CLOCK, which is
+  // undefined during a render — frames aren't captured in real time, so the
+  // media raced through its whole sequence in a few output frames
+  // ("twitching"). Preview keeps the cheap native elements. Looping videos
+  // render as OffthreadVideo inside <Loop> (frame extraction happens in
+  // Remotion's ffmpeg compositor) because Html5Video's per-frame seeking
+  // never completes in Linux headless Chrome — the seek to frame 1 hangs
+  // until delayRender times out. delayRender/continueRender power the
+  // metadata probe that measures the loop length.
   AnimatedImage,
   getRemotionEnvironment,
+  delayRender,
+  continueRender,
   Audio,
 } from "remotion";
 import type { VideoProps, Scene } from "./types";
@@ -87,6 +92,39 @@ export const getLayoutDefaultDuration = (index: number): number | undefined =>
   SCENE_LAYOUTS[index]?.defaultDuration;
 export const getLayoutDefaultFontSize = (index: number): number | undefined =>
   SCENE_LAYOUTS[index]?.textDefaults?.fontSize;
+
+// Measure a video's duration in frames so a looping OffthreadVideo can be
+// wrapped in <Loop durationInFrames>. Only engaged during frame-synced
+// renders (pass null src otherwise — the hook is inert then). Metadata
+// loads reliably even in Linux headless Chrome; it's per-frame seeking of
+// <video> elements that hangs there, which is why looping media renders
+// through OffthreadVideo (ffmpeg frame extraction) instead of Html5Video.
+const useLoopedVideoFrames = (src: string | null, fps: number): number | null => {
+  const [frames, setFrames] = React.useState<number | null>(null);
+  // Handle created during render (not in the effect) so Remotion can never
+  // capture a frame between mount and the effect running.
+  const [handle] = React.useState(() => (src ? delayRender(`Measuring loop duration of ${src}`) : null));
+  React.useEffect(() => {
+    if (!src || handle === null) return;
+    const v = document.createElement("video");
+    v.preload = "metadata";
+    const done = () => {
+      if (Number.isFinite(v.duration) && v.duration > 0) {
+        setFrames(Math.max(1, Math.round(v.duration * fps)));
+      }
+      continueRender(handle);
+    };
+    v.addEventListener("loadedmetadata", done, { once: true });
+    v.addEventListener("error", done, { once: true });
+    v.src = src;
+    return () => {
+      v.removeEventListener("loadedmetadata", done);
+      v.removeEventListener("error", done);
+      v.removeAttribute("src");
+    };
+  }, [src, fps, handle]);
+  return frames;
+};
 
 export const resolveSceneMusic = (scene: Scene): { src: string; fadeIn?: number; fadeOut?: number; startFrom?: number } | undefined => {
   const layoutIndex = resolveLayoutIndex(scene.layout, 0);
@@ -1504,6 +1542,13 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; index: number; layo
   if (backgroundVideo && !backgroundVideo.src && resolvedLayout.backgroundVideo?.src) {
     backgroundVideo.src = resolvedLayout.backgroundVideo.src;
   }
+  // Loop length for loopVideo layouts, measured only during frame-synced
+  // renders (null src keeps the hook inert otherwise).
+  const loopVideoSrc =
+    frameSyncMedia && getRemotionEnvironment().isRendering && resolvedLayout.loopVideo && backgroundVideo?.src
+      ? assetUrl(backgroundVideo.src)
+      : null;
+  const loopVideoFrames = useLoopedVideoFrames(loopVideoSrc, fps);
   const resolvedFontSize = fontSize ?? td?.fontSize ?? 150;
   const resolvedX = xOffset || td?.x || 0;
   const resolvedY = yOffset || td?.y || 0;
@@ -1590,25 +1635,28 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; index: number; layo
         >
           {resolvedLayout.loopVideo ? (
             frameSyncMedia && getRemotionEnvironment().isRendering ? (
-              <Html5Video
-                src={assetUrl(backgroundVideo.src)}
-                loop
-                muted
-                style={
-                  resolvedLayout.videoFit === "contain"
-                    ? {
-                        height: "100%",
-                        width: "auto",
-                        transform: `scale(${backgroundVideo.scale ?? 1})`,
-                      }
-                    : {
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                        transform: `scale(${backgroundVideo.scale ?? 1})`,
-                      }
-                }
-              />
+              loopVideoFrames != null && (
+                <Loop durationInFrames={loopVideoFrames} layout="none">
+                  <Video
+                    src={assetUrl(backgroundVideo.src)}
+                    muted
+                    style={
+                      resolvedLayout.videoFit === "contain"
+                        ? {
+                            height: "100%",
+                            width: "auto",
+                            transform: `scale(${backgroundVideo.scale ?? 1})`,
+                          }
+                        : {
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover",
+                            transform: `scale(${backgroundVideo.scale ?? 1})`,
+                          }
+                    }
+                  />
+                </Loop>
+              )
             ) : (
               <video
                 src={assetUrl(backgroundVideo.src)}
@@ -2556,6 +2604,16 @@ export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, mus
   // future secondary text element.
   const secondaryFontConfig = FONT_MAP[secondaryFont || ""] || fontConfig;
 
+  // Loop length of the global overlay video, measured only during
+  // frame-synced renders (null src keeps the hook inert in preview and on
+  // deployments without the flag). 60 = composition fps (hardcoded across
+  // this file).
+  const overlayLoopSrc =
+    frameSyncMedia && getRemotionEnvironment().isRendering && overlayVideo && overlayVideo !== "none"
+      ? assetUrl(overlayVideo)
+      : null;
+  const overlayLoopFrames = useLoopedVideoFrames(overlayLoopSrc, 60);
+
   // Compute cumulative start positions for variable-duration scenes
   const sceneStarts: number[] = [];
   let offset = 0;
@@ -2573,12 +2631,15 @@ export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, mus
       {overlayVideo && overlayVideo !== "none" && (
         <AbsoluteFill style={{ mixBlendMode: "screen", zIndex: 100, pointerEvents: "none" as const }}>
           {frameSyncMedia && getRemotionEnvironment().isRendering ? (
-            <Html5Video
-              src={assetUrl(overlayVideo)}
-              loop
-              muted
-              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            />
+            overlayLoopFrames != null && (
+              <Loop durationInFrames={overlayLoopFrames} layout="none">
+                <Video
+                  src={assetUrl(overlayVideo)}
+                  muted
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                />
+              </Loop>
+            )
           ) : (
             <video
               src={assetUrl(overlayVideo)}

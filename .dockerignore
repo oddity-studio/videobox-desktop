@@ -18,3 +18,11 @@ public/
 !public/picker/
 !public/picker/presets/
 !public/picker/presets/**
+# Desktop (Electron) app — source lives in this repo but is never part
+# of the web deployment. Keeps the Docker build contexts lean.
+electron/
+dist-electron/
+dist-packages/
+electron-builder.yml
+tsconfig.electron.json
+env/

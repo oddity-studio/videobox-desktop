@@ -49,11 +49,17 @@ services:
       PORT: 3001
       PROJECT_DIR: /project
       OUTPUT_DIR: /renders
-      BROWSER_EXECUTABLE: /usr/bin/chromium
+      # Chrome for Testing is baked into the image (see render.Dockerfile)
+      # so web renders use the same browser as the desktop app. To fall
+      # back to the Debian package: BROWSER_EXECUTABLE=/usr/bin/chromium.
+      CHROME_MODE: chrome-for-testing
       NEXT_PUBLIC_ASSET_BASE_URL: ${NEXT_PUBLIC_ASSET_BASE_URL:-https://storage.googleapis.com/audeobox-cdn/videobox}
       NEXT_PUBLIC_RENDER_API_BASE: ${NEXT_PUBLIC_RENDER_API_BASE:-/api/render}
       NEXT_PUBLIC_FEED_BASE_URL: ${NEXT_PUBLIC_FEED_BASE_URL:-/audeobox-feeds}
       RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-1}
+      # Frame-synced media (overlay video, loopVideo, fire webp) — same
+      # behavior as the desktop app, so one videoProps tweak covers both.
+      FRAME_SYNC_MEDIA: ${FRAME_SYNC_MEDIA:-1}
     ports:
       - "${VIDEOBOX_BIND_HOST:-127.0.0.1}:${VIDEOBOX_RENDER_PORT:-3101}:3001"
     volumes:
