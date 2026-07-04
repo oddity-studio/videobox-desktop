@@ -344,6 +344,15 @@ export default function Editor() {
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
   }, []);
+  // True when running inside the desktop (Electron) app — detected via the
+  // preload bridge. Set in an effect (not during render) so the static
+  // export hydrates identically on web and desktop. Drives the custom
+  // title bar strip below: the desktop window has no native title bar, so
+  // the app reserves a 36px draggable band for the min/max/close overlay.
+  const [isElectron, setIsElectron] = useState(false);
+  useEffect(() => {
+    setIsElectron(!!(window as unknown as { electronAPI?: unknown }).electronAPI);
+  }, []);
   const [recordingMode, setRecordingMode] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
   // "add"  → gallery click appends a new scene (legacy behaviour)
@@ -2252,12 +2261,30 @@ export default function Editor() {
   };
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, ...(isElectron ? { paddingTop: 36 } : {}) }}>
+      {/* Desktop app only: dedicated title bar band. The Electron window
+          has no native title bar (no name, no icon, no menu); this strip
+          hosts the OS min/max/close overlay and doubles as the window
+          drag area, and the page content starts below it. */}
+      {isElectron && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 36,
+            backgroundColor: "#0a0a0a",
+            zIndex: 2000,
+            WebkitAppRegion: "drag",
+          } as React.CSSProperties}
+        />
+      )}
       {/* Navbar is hidden on the mobile Preview tab so the player gets
           the full vertical real estate while watching. Save/Load still
           available from the Preset/Scenes tabs. */}
       {!(isMobile && mobileTab === "preview") && (
-      <nav style={styles.navbar}>
+      <nav style={{ ...styles.navbar, ...(isElectron ? { top: 36 } : {}) }}>
         <h1 style={styles.navbarTitle}>VIDEOBOX 2.0</h1>
         <div style={{ display: "flex", gap: 8 }}>
           <input

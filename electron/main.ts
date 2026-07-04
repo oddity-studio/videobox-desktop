@@ -2,23 +2,30 @@ import {
   app,
   BrowserWindow,
   ipcMain,
+  Menu,
   shell,
   utilityProcess,
   UtilityProcess,
 } from "electron";
+import type { AddressInfo } from "net";
 import * as path from "path";
 import * as fs from "fs";
 import * as http from "http";
 import * as https from "https";
 import * as url from "url";
 
-const PORT_UI = 3100;
 const PORT_RENDER = 3001;
 const IS_DEV = !app.isPackaged;
+// Matches the editor's background (styles.container in app/Editor.tsx) so
+// the title bar area is indistinguishable from the app itself.
+const APP_BG_COLOR = "#0a0a0a";
 
 let renderProc: UtilityProcess | null = null;
 let uiServer: http.Server | null = null;
 let mainWindow: BrowserWindow | null = null;
+// Actual UI port (OS-assigned in packaged mode, 3000 in dev) — kept for the
+// macOS "activate" re-open handler.
+let uiPort = 3000;
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -147,7 +154,10 @@ function proxyToFeed(
   proxy.end();
 }
 
-function startUIServer(): void {
+// Resolves with the actual port. Listens on an OS-assigned free port so the
+// app never collides with the Docker web container (which binds 3100 on
+// this same machine) — only the BrowserWindow needs to know the URL anyway.
+function startUIServer(): Promise<number> {
   const outDir = path.join(root(), "out");
 
   uiServer = http.createServer((req, res) => {
@@ -208,7 +218,11 @@ function startUIServer(): void {
     }
   });
 
-  uiServer.listen(PORT_UI, "127.0.0.1");
+  return new Promise((resolve) => {
+    uiServer!.listen(0, "127.0.0.1", () => {
+      resolve((uiServer!.address() as AddressInfo).port);
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +298,16 @@ async function createWindow(): Promise<void> {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: "Videobox",
+    // No native title bar: no app name, no icon, no menu strip. The window
+    // controls (min/max/close) are drawn by the OS as an overlay, colored
+    // to blend with the app background.
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: APP_BG_COLOR,
+      symbolColor: "#ffffff",
+      height: 36,
+    },
+    backgroundColor: APP_BG_COLOR,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -292,12 +315,11 @@ async function createWindow(): Promise<void> {
     },
   });
 
-  // Dev: connect to Next.js hot-reload server. Prod: our static server.
-  const appUrl = IS_DEV
-    ? "http://localhost:3000"
-    : `http://localhost:${PORT_UI}`;
+  await mainWindow.loadURL(`http://localhost:${uiPort}`);
 
-  await mainWindow.loadURL(appUrl);
+  // The title bar band itself is rendered by the app (app/Editor.tsx,
+  // gated on window.electronAPI) — injecting DOM from here loses a race
+  // with Next.js hydration, which wipes foreign nodes.
 
   if (IS_DEV) mainWindow.webContents.openDevTools();
 
@@ -321,9 +343,14 @@ ipcMain.handle("app-version", () => app.getVersion());
 // ---------------------------------------------------------------------------
 
 app.whenReady().then(async () => {
+  // No application menu — removes the File/Edit/View strip entirely.
+  Menu.setApplicationMenu(null);
+
   startRenderServer();
 
-  if (!IS_DEV) startUIServer();
+  if (!IS_DEV) {
+    uiPort = await startUIServer();
+  }
 
   try {
     await waitForRenderServer();
