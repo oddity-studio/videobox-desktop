@@ -58,6 +58,10 @@ function startRenderServer(): void {
       // which froze <Video>/<Gif> layers (overlays, fire effects) on a
       // single frame in rendered output.
       CHROME_MODE: "chrome-for-testing",
+      // Frame-sync wall-clock media (overlay video, loopVideo, fire webp)
+      // during renders. Desktop-only — the web deployment keeps its
+      // original render path.
+      FRAME_SYNC_MEDIA: "1",
       UPSTREAM_CDN:
         "https://storage.googleapis.com/audeobox-cdn/videobox",
     },

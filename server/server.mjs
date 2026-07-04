@@ -237,6 +237,10 @@ const BROWSER_EXECUTABLE = process.env.BROWSER_EXECUTABLE || null;
 const CHROME_MODE = process.env.CHROME_MODE === "chrome-for-testing"
     ? "chrome-for-testing"
     : "headless-shell";
+// When "1", every render gets frameSyncMedia: true injected into its
+// inputProps (see POST /render). Set by the desktop Electron app, never
+// by the Docker deployment.
+const FRAME_SYNC_MEDIA = process.env.FRAME_SYNC_MEDIA === "1";
 // How long to keep finished/failed job records (and any unsent mp4 files)
 // before reaping. 1 hour is enough to recover from a flaky download and
 // not so long that disk usage runs away.
@@ -679,6 +683,13 @@ app.post("/render", (req, res) => {
         ? { [selectedTransition]: TRANSITIONS_PRELOAD[selectedTransition] }
         : {};
     inputProps = { ...inputProps, transitions: scopedTransitions };
+    // Desktop-only flag (see FRAME_SYNC_MEDIA below): swaps wall-clock
+    // media (overlay <video>, loopVideo, fire webp) for frame-synced
+    // Remotion components during rendering. The web deployment never sets
+    // the env var, so its renders keep the original code path untouched.
+    if (FRAME_SYNC_MEDIA) {
+        inputProps = { ...inputProps, frameSyncMedia: true };
+    }
     // Per-request timeout (seconds), clamped to [1, MAX_RENDER_TIMEOUT_MS/1000].
     // Default 15 min. If ?timeout is malformed we fall back to default rather
     // than 400ing — the caller might be a legacy editor without the param.

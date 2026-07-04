@@ -46,6 +46,12 @@ export const videoPropsSchema = z.object({
   // Falls back to `font` if unset — see HelloWorld's secondaryFontConfig.
   secondaryFont: z.string().optional(),
   overlayVideo: z.string().optional(),
+  // Injected by the render server when FRAME_SYNC_MEDIA=1 (the desktop
+  // app sets this). Swaps wall-clock media (overlay <video>, loopVideo,
+  // fire webp) for frame-synced Remotion components during rendering.
+  // Never set on the web deployment — its renders keep the original,
+  // known-good code path untouched.
+  frameSyncMedia: z.boolean().optional(),
   scenes: z.array(sceneSchema),
 });
 

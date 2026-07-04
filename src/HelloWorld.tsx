@@ -894,7 +894,8 @@ const SlideLinesOverlay: React.FC<{
   duel?: boolean;
   tourney?: boolean;
   fixed?: boolean;
-}> = ({ text, sceneDuration, colors, fontConfig, fontSize, rotateZ, rotateX, perspective, y, textColor, textGlow, labels, offsetX, duel, tourney, fixed }) => {
+  frameSyncMedia?: boolean;
+}> = ({ text, sceneDuration, colors, fontConfig, fontSize, rotateZ, rotateX, perspective, y, textColor, textGlow, labels, offsetX, duel, tourney, fixed, frameSyncMedia = false }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const exitStart = sceneDuration - 30;
@@ -1138,7 +1139,7 @@ const SlideLinesOverlay: React.FC<{
               zIndex: -1,
               filter: `hue-rotate(${hueShift}deg)`,
             };
-            if (getRemotionEnvironment().isRendering) {
+            if (frameSyncMedia && getRemotionEnvironment().isRendering) {
               // An animated webp in a plain <img> plays on wall clock, which
               // is meaningless during a server render (frames aren't captured
               // in real time) — the flames raced through the whole animation
@@ -1469,7 +1470,7 @@ const Top10Overlay: React.FC<{
   );
 };
 
-const SceneCard: React.FC<{ text: string; subtitle?: string; index: number; layoutIndex: number; colors: ColorScheme; fontConfig: FontConfig; secondaryFontConfig?: FontConfig; fontSize?: number; y?: number; x?: number; rotateZ?: number; rotateX?: number; perspective?: number; backgroundVideo?: Scene["backgroundVideo"]; sceneDuration?: number; overlayVideo?: string; portrait?: string }> = ({
+const SceneCard: React.FC<{ text: string; subtitle?: string; index: number; layoutIndex: number; colors: ColorScheme; fontConfig: FontConfig; secondaryFontConfig?: FontConfig; fontSize?: number; y?: number; x?: number; rotateZ?: number; rotateX?: number; perspective?: number; backgroundVideo?: Scene["backgroundVideo"]; sceneDuration?: number; overlayVideo?: string; portrait?: string; frameSyncMedia?: boolean }> = ({
   text,
   subtitle,
   index,
@@ -1487,6 +1488,7 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; index: number; layo
   sceneDuration: dur = SCENE_DURATION,
   overlayVideo = "none",
   portrait,
+  frameSyncMedia = false,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -1587,7 +1589,7 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; index: number; layo
           }}
         >
           {resolvedLayout.loopVideo ? (
-            getRemotionEnvironment().isRendering ? (
+            frameSyncMedia && getRemotionEnvironment().isRendering ? (
               <Html5Video
                 src={assetUrl(backgroundVideo.src)}
                 loop
@@ -1997,6 +1999,7 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; index: number; layo
           duel={resolvedLayout.slideLinesDuel}
           tourney={resolvedLayout.slideLinesTourney}
           fixed={resolvedLayout.slideLinesFixed}
+          frameSyncMedia={frameSyncMedia}
         />
       )}
 
@@ -2546,7 +2549,7 @@ const TitleCard: React.FC<{ colorScheme: VideoProps["colorScheme"]; layoutIndex:
 // data model. The shape is intentionally loose so the editor's <Player>
 // preview (which doesn't ship this prop) still typechecks.
 type HelloWorldProps = VideoProps & { transitions?: Record<string, unknown> };
-export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, music = "Tournament.mp3", transition = "flash.json", font = "Dela Gothic One", secondaryFont, overlayVideo = "none", transitions }) => {
+export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, music = "Tournament.mp3", transition = "flash.json", font = "Dela Gothic One", secondaryFont, overlayVideo = "none", frameSyncMedia = false, transitions }) => {
   const fontConfig = FONT_MAP[font] || FONT_MAP["Dela Gothic One"];
   // Falls back to the primary font when unset — currently used for the
   // Subtitle text in S13 Caption 1-4, but generic enough to reuse for any
@@ -2569,7 +2572,7 @@ export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, mus
       {/* Global screen-blended video overlay across entire composition */}
       {overlayVideo && overlayVideo !== "none" && (
         <AbsoluteFill style={{ mixBlendMode: "screen", zIndex: 100, pointerEvents: "none" as const }}>
-          {getRemotionEnvironment().isRendering ? (
+          {frameSyncMedia && getRemotionEnvironment().isRendering ? (
             <Html5Video
               src={assetUrl(overlayVideo)}
               loop
@@ -2627,7 +2630,7 @@ export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, mus
               ) : sceneLayout.titleCard ? (
                 <TitleCard colorScheme={colorScheme} fontConfig={fontConfig} layoutIndex={sceneLayoutIndex} text={scene.text} fontSize={scene.fontSize} />
               ) : (
-                <SceneCard text={scene.text} subtitle={scene.subtitle} index={i} layoutIndex={sceneLayoutIndex} colors={colorScheme} fontConfig={fontConfig} secondaryFontConfig={secondaryFontConfig} fontSize={scene.fontSize} y={scene.y} x={scene.x} rotateZ={scene.rotateZ} rotateX={scene.rotateX} perspective={scene.perspective} backgroundVideo={scene.backgroundVideo} sceneDuration={sceneFrames} overlayVideo={overlayVideo} portrait={scene.portrait} />
+                <SceneCard text={scene.text} subtitle={scene.subtitle} index={i} layoutIndex={sceneLayoutIndex} colors={colorScheme} fontConfig={fontConfig} secondaryFontConfig={secondaryFontConfig} fontSize={scene.fontSize} y={scene.y} x={scene.x} rotateZ={scene.rotateZ} rotateX={scene.rotateX} perspective={scene.perspective} backgroundVideo={scene.backgroundVideo} sceneDuration={sceneFrames} overlayVideo={overlayVideo} portrait={scene.portrait} frameSyncMedia={frameSyncMedia} />
               )}
             </Sequence>
             {/* Transition overlay */}
