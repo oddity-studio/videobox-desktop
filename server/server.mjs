@@ -624,6 +624,11 @@ app.get(/^\/cache\/(.+)$/, async (req, res) => {
     if (!relPath || relPath.includes("..")) {
         return res.status(400).send("bad path");
     }
+    // The rendered bundle runs on a different loopback origin (localhost:3000)
+    // than this cache (localhost:${PORT}), so the tab's fetch() for transition
+    // JSON is cross-origin and Chromium blocks it without this header. Safe to
+    // open up: this server is reachable only from inside the render container.
+    res.setHeader("Access-Control-Allow-Origin", "*");
     try {
         const filePath = await ensureCached(relPath);
         res.setHeader("Cache-Control", "public, max-age=3600");
