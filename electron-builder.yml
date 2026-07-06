@@ -39,9 +39,11 @@ win:
   # icon: public/icon.ico  # Uncomment once a 256×256 .ico is added to public/
 
 mac:
+  # dmg only — the zip target exists to feed Electron's auto-updater,
+  # which we don't use, and it doubles the CI artifact (each target is a
+  # full copy of the app).
   target:
     - target: dmg
-    - target: zip
   category: public.app-category.video
   # icon: public/icon.icns  # Uncomment once a 1024×1024 .icns is added to public/
 
