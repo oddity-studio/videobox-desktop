@@ -28,7 +28,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libxshmfence1 \
         libxss1 \
         wget \
+        unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Chromium >= ~142 crashes on this host's CPU with SIGILL ("trap invalid opcode"
+# in dmesg) — the prebuilt binary uses an instruction this GCP Xeon lacks. The
+# system `chromium` package (above) drifts to the latest on every rebuild and is
+# kept ONLY for its shared-lib dependencies. The actual render browser is a
+# pinned chrome-headless-shell known to run here (141 works; 142+ SIGILL).
+ARG CHROME_VERSION=141.0.7390.54
+RUN wget -q "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-headless-shell-linux64.zip" -O /tmp/chs.zip \
+    && mkdir -p /opt/chrome \
+    && unzip -q /tmp/chs.zip -d /opt/chrome \
+    && rm /tmp/chs.zip \
+    && ln -sf /opt/chrome/chrome-headless-shell-linux64/chrome-headless-shell /usr/local/bin/chrome-headless-shell
 
 WORKDIR /project
 
@@ -44,7 +57,7 @@ ENV NODE_ENV=production \
     PORT=3001 \
     PROJECT_DIR=/project \
     OUTPUT_DIR=/renders \
-    BROWSER_EXECUTABLE=/usr/bin/chromium \
+    BROWSER_EXECUTABLE=/usr/local/bin/chrome-headless-shell \
     REMOTION_CHROME_MODE=chrome-for-testing \
     HOME=/tmp
 
