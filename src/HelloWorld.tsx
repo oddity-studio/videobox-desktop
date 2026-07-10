@@ -811,14 +811,14 @@ const HexRippleOverlay: React.FC<{
   // height; the second text follows it in a flex column with a fixed gap,
   // so the gap never changes when the user resizes the text.
   const hexTop = HEX_CY - R;
-  const textAnchorY = hexTop + 2 * R * 0.25;
-  const TEXT_GAP = 9;
+  const textAnchorY = hexTop + 2 * R * 0.15;
+  const TEXT_GAP = 4;
 
-  // Text fill: white up top softly blending into the palette highlight at
-  // the bottom of each line (gradient clipped to the glyphs). Shared by
-  // the center pair and the settled WEEKLY/REPORT lines.
+  // Text fill: white on the top ~30% of each line blending into the
+  // palette highlight over the lower ~70% (gradient clipped to the
+  // glyphs). Shared by the center pair and the WEEKLY/REPORT lines.
   const gradientTextFill: React.CSSProperties = {
-    backgroundImage: `linear-gradient(180deg, #ffffff 25%, ${colors.highlight} 100%)`,
+    backgroundImage: `linear-gradient(180deg, #ffffff 10%, ${colors.highlight} 50%)`,
     WebkitBackgroundClip: "text",
     backgroundClip: "text",
     color: "transparent",
@@ -882,7 +882,9 @@ const HexRippleOverlay: React.FC<{
           <polygon points={hexPoints} fill="none" stroke={colors.highlight} strokeWidth={6 / r2.scale} />
         </g>
         <g transform={`translate(540 ${HEX_CY})`}>
-          <polygon points={hexPoints} fill="none" stroke={colors.highlight} strokeWidth={10} strokeLinejoin="round" />
+          {/* Solid fill matches the scene background so the hexagon reads
+              as a panel — dots/gradient behind it are masked out. */}
+          <polygon points={hexPoints} fill="#130d38" stroke={colors.highlight} strokeWidth={10} strokeLinejoin="round" />
         </g>
       </svg>
 
@@ -901,11 +903,15 @@ const HexRippleOverlay: React.FC<{
         </AbsoluteFill>
       )}
 
-      {/* Phase C+: 200px lines cross and settle near the screen edges */}
+      {/* Phase C+: 200px lines cross and settle near the screen edges.
+          Line spacing is 165px — NOT fontSize + gap: an all-caps 200px
+          Fugaz One line only paints ~145px of glyphs inside its 200px
+          em-box, so spacing by the em-box left ~60px of invisible air
+          between the lines. 165 = cap height + a slim real gap. */}
       {t >= SETTLE_START && (
         <>
-          <p style={{ ...settledLineStyle, top: 200, left: weeklyLeft }}>WEEKLY</p>
-          <p style={{ ...settledLineStyle, top: 410, right: reportRight }}>REPORT</p>
+          <p style={{ ...settledLineStyle, top: 250, left: weeklyLeft }}>WEEKLY</p>
+          <p style={{ ...settledLineStyle, top: 415, right: reportRight }}>REPORT</p>
         </>
       )}
 
