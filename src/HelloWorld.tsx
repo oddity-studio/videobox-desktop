@@ -737,8 +737,8 @@ const HexRippleOverlay: React.FC<{
 
   // Pointy-top hexagon around the origin; scaled/translated via <g>.
   const R = 285;
-  // Hexagon center: horizontal middle, 300px below the canvas center.
-  const HEX_CY = 1260;
+  // Hexagon center: horizontal middle, 250px below the canvas center.
+  const HEX_CY = 1210;
   const hexPoints = Array.from({ length: 6 }, (_, i) => {
     const a = ((60 * i - 90) * Math.PI) / 180;
     return `${(R * Math.cos(a)).toFixed(2)},${(R * Math.sin(a)).toFixed(2)}`;
@@ -812,12 +812,13 @@ const HexRippleOverlay: React.FC<{
   // so the gap never changes when the user resizes the text.
   const hexTop = HEX_CY - R;
   const textAnchorY = hexTop + 2 * R * 0.25;
-  const TEXT_GAP = 18;
+  const TEXT_GAP = 9;
 
-  // Palette-driven text fill: highlight up top softly blending toward the
-  // dark color at the bottom of each line (gradient clipped to the glyphs).
+  // Text fill: white up top softly blending into the palette highlight at
+  // the bottom of each line (gradient clipped to the glyphs). Shared by
+  // the center pair and the settled WEEKLY/REPORT lines.
   const gradientTextFill: React.CSSProperties = {
-    backgroundImage: `linear-gradient(180deg, ${colors.highlight} 25%, ${colors.dark} 100%)`,
+    backgroundImage: `linear-gradient(180deg, #ffffff 25%, ${colors.highlight} 100%)`,
     WebkitBackgroundClip: "text",
     backgroundClip: "text",
     color: "transparent",
@@ -828,11 +829,11 @@ const HexRippleOverlay: React.FC<{
     fontWeight: 400,
     fontSize: 500,
     lineHeight: 1,
-    color: "#ffffff",
     margin: 0,
     whiteSpace: "nowrap",
     position: "absolute",
     left: "50%",
+    ...gradientTextFill,
   };
 
   const settledLineStyle: React.CSSProperties = {
@@ -840,11 +841,11 @@ const HexRippleOverlay: React.FC<{
     fontWeight: 400,
     fontSize: 200,
     lineHeight: 1,
-    color: "#ffffff",
     margin: 0,
     whiteSpace: "nowrap",
     position: "absolute",
     filter: "drop-shadow(5px 6px 6px rgba(0,0,0,0.65))",
+    ...gradientTextFill,
   };
 
   return (
@@ -903,8 +904,8 @@ const HexRippleOverlay: React.FC<{
       {/* Phase C+: 200px lines cross and settle near the screen edges */}
       {t >= SETTLE_START && (
         <>
-          <p style={{ ...settledLineStyle, top: 150, left: weeklyLeft }}>WEEKLY</p>
-          <p style={{ ...settledLineStyle, top: 370, right: reportRight }}>REPORT</p>
+          <p style={{ ...settledLineStyle, top: 200, left: weeklyLeft }}>WEEKLY</p>
+          <p style={{ ...settledLineStyle, top: 410, right: reportRight }}>REPORT</p>
         </>
       )}
 
@@ -938,7 +939,7 @@ const HexRippleOverlay: React.FC<{
             <p style={{
               fontFamily: (secondaryFontConfig ?? fontConfig).fontFamily,
               fontWeight: 700,
-              fontSize: fontSize / 2,
+              fontSize: fontSize / 3,
               lineHeight: 1,
               margin: 0,
               textTransform: "uppercase",
@@ -2260,9 +2261,9 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; text2?: string; tex
         <WeeklyTitleOverlay
           text={text}
           sceneDuration={dur}
-          // Weekly Title 2: date sits 50px lower and waits for the intro
-          // sequence (swipe → hexagon → WEEKLY/REPORT settle → texts).
-          bottomPx={resolvedLayout.hexRipple ? 250 : 300}
+          // Weekly Title 2: date waits for the intro sequence
+          // (swipe → hexagon → WEEKLY/REPORT settle → texts).
+          bottomPx={resolvedLayout.hexRipple ? 300 : 300}
           fadeStartSec={resolvedLayout.hexRipple ? 3.4 : 2.0}
         />
       )}

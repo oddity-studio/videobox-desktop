@@ -10,11 +10,12 @@ const layout: SceneLayout = {
   characters: [],
   weeklyTitle: true,
   hexRipple: true,
+  polkaDotOverlay: true,
   defaultDuration: 5,
-  // fontSize drives the big center text (text2); text3 renders at half of
-  // it. The bottom week title stays fixed at 72 (WeeklyTitleOverlay).
+  // fontSize drives the big center text (text2); text3 renders at a third
+  // of it. The bottom week title stays fixed at 72 (WeeklyTitleOverlay).
   textDefaults: { y: 0, fontSize: 120, mode: "flat" },
-  customStyle: () => ({ background: "#000000", textColor: "#ffffff", textGlow: "none" }),
+  customStyle: () => ({ background: "#130d38", textColor: "#ffffff", textGlow: "none" }),
   customControls: [{ type: "weekPicker" }],
 };
 

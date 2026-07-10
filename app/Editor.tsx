@@ -2223,7 +2223,7 @@ export default function Editor() {
       )}
       {/* Center text pair, only for hex-ripple layouts (Weekly Title 2) —
           rendered stacked in the middle of the scene by HexRippleOverlay;
-          Center Text 1 is double the size of Center Text 2. */}
+          Center Text 1 is 3x the size of Center Text 2. */}
       {isHexRippleLayout(_layoutIdx) && (
         <>
           <span style={{ ...styles.sceneInputCaption, marginTop: 6 }}>Center Text 1</span>

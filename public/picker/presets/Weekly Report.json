@@ -10,13 +10,9 @@
   "scenes": [
     {
       "text": "Apr 5th – Apr 12th",
-      "layout": "Weekly Title",
-      "fontSize": 72,
-      "duration": 5,
-      "backgroundVideo": {
-        "src": "",
-        "muted": false
-      }
+      "layout": "Weekly Title 2",
+      "fontSize": 120,
+      "duration": 5
     },
     {
       "text": "Player1|Player1|Player1\n786|454|121",
