@@ -3,23 +3,24 @@
   "colorScheme": {
     "dark": "#890659",
     "light": "#7229fa",
-    "highlight": "#ffae00"
+    "highlight": "#ec9736"
   },
   "music": "Weekly.mp3",
   "font": "Exo 2",
+  "secondaryFont": "Big Shoulders",
   "overlayVideo": "Grunge.mp4",
   "scenes": [
     {
       "text": "Apr 5th – Apr 12th",
+      "text2": "150",
+      "text3": "WIN STREAK",
       "layout": "Weekly Title 2",
       "fontSize": 262,
       "duration": 5,
       "backgroundVideo": {
         "src": "",
         "muted": false
-      },
-      "text2": "150",
-      "text3": "WIN STREAK"
+      }
     },
     {
       "text": "Player1|Player1|Player1\n786|454|121",
@@ -69,9 +70,8 @@
       "duration": 10,
       "backgroundVideo": {
         "src": "",
-        "muted": false
+        "muted": true
       }
     }
-  ],
-  "secondaryFont": "Big Shoulders"
+  ]
 }
