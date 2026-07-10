@@ -35,8 +35,6 @@ WORKDIR /project
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
-COPY . ./
-
 # Bake Chrome for Testing (full Chrome, all codecs) into the image at build
 # time. The Debian chromium package (still installed above as an emergency
 # fallback — point BROWSER_EXECUTABLE at /usr/bin/chromium to use it) can't
@@ -44,8 +42,11 @@ COPY . ./
 # waits forever and delayRender times out. Chrome for Testing is the same
 # browser the desktop app uses, so web and desktop renders behave
 # identically. Downloading here (not at container start) keeps production
-# startup network-free.
+# startup network-free. This step runs BEFORE the source copy so the ~170MB
+# download layer stays cached across src/ changes.
 RUN node -e "require('@remotion/renderer').ensureBrowser({chromeMode:'chrome-for-testing'}).then(()=>console.log('chrome-for-testing ready'))"
+
+COPY . ./
 
 RUN mkdir -p /renders \
     && chown -R node:node /project /renders
