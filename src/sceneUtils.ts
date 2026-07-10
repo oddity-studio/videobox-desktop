@@ -243,6 +243,9 @@ export type SceneLayout = {
   battleOverlay?: boolean;
   battleSlide?: number;
   weeklyTitle?: boolean;
+  // Centered hexagon outline (highlight color) with a slow expanding
+  // hexagonal ripple behind it — see HexRippleOverlay in HelloWorld.tsx.
+  hexRipple?: boolean;
   killstreakOverlay?: boolean;
   kingOverlay?: boolean;
   slideLinesOverlay?: boolean;

@@ -37,6 +37,7 @@ import Neon from "./Neon";
 import Ocean from "./Ocean";
 import Ember from "./Ember";
 import WeeklyTitle from "./WeeklyTitle";
+import WeeklyTitle2 from "./WeeklyTitle2";
 import Killstreak from "./Killstreak";
 import King from "./King";
 import Outro from "./Outro";
@@ -84,6 +85,7 @@ export const SCENE_LAYOUTS: SceneLayout[] = [
   Ocean,
   Ember,
   WeeklyTitle,
+  WeeklyTitle2,
   Killstreak,
   King,
   Outro,

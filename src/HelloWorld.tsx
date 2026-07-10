@@ -714,6 +714,63 @@ const BracketsLayer: React.FC<{ src: string; sceneDuration: number }> = ({ src, 
 };
 
 // Weekly Title overlay — date range text near bottom, fades in like Videobox title slide
+// Centered hexagon outline in the palette highlight color, with a faded
+// hexagon ripple slowly expanding out from behind it. Pure frame-driven SVG
+// (no wall-clock animation), so preview and server renders are identical.
+const HexRippleOverlay: React.FC<{ colors: ColorScheme; sceneDuration: number }> = ({ colors, sceneDuration }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+
+  // Pointy-top hexagon around the origin; scaled/translated via <g>.
+  const R = 190;
+  const hexPoints = Array.from({ length: 6 }, (_, i) => {
+    const a = ((60 * i - 90) * Math.PI) / 180;
+    return `${(R * Math.cos(a)).toFixed(2)},${(R * Math.sin(a)).toFixed(2)}`;
+  }).join(" ");
+
+  // Entrance fade (matches the title text's timing family) + scene exit fade.
+  const alpha = interpolate(frame, [0, fps * 0.5], [0, 1], { extrapolateRight: "clamp" });
+  const exitStart = sceneDuration - 30;
+  const exit = frame > exitStart ? interpolate(frame, [exitStart, sceneDuration], [1, 0], { extrapolateRight: "clamp" }) : 1;
+
+  // Ripple: every loop a faded outline starts at the hexagon and slowly
+  // grows outward while fading away. Two copies half a loop apart so a new
+  // ring is always emerging as the previous one dissipates.
+  const LOOP_SEC = 3;
+  const loopFrames = fps * LOOP_SEC;
+  const ripple = (phaseOffset: number) => {
+    const t = ((frame + phaseOffset * loopFrames) % loopFrames) / loopFrames;
+    return {
+      scale: 1 + t * 1.1,
+      opacity: (1 - t) * 0.45,
+    };
+  };
+  const r1 = ripple(0);
+  const r2 = ripple(0.5);
+
+  return (
+    <AbsoluteFill style={{ zIndex: 11, opacity: alpha * exit, pointerEvents: "none" }}>
+      <svg
+        viewBox="0 0 1080 1920"
+        width="100%"
+        height="100%"
+        style={{ position: "absolute", inset: 0 }}
+      >
+        {/* Ripples render first so they sit behind the main outline */}
+        <g transform={`translate(540 960) scale(${r1.scale})`} opacity={r1.opacity}>
+          <polygon points={hexPoints} fill="none" stroke={colors.highlight} strokeWidth={6 / r1.scale} />
+        </g>
+        <g transform={`translate(540 960) scale(${r2.scale})`} opacity={r2.opacity}>
+          <polygon points={hexPoints} fill="none" stroke={colors.highlight} strokeWidth={6 / r2.scale} />
+        </g>
+        <g transform="translate(540 960)">
+          <polygon points={hexPoints} fill="none" stroke={colors.highlight} strokeWidth={10} strokeLinejoin="round" />
+        </g>
+      </svg>
+    </AbsoluteFill>
+  );
+};
+
 const WeeklyTitleOverlay: React.FC<{ text: string; sceneDuration: number }> = ({ text, sceneDuration }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -2016,6 +2073,11 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; index: number; layo
       {/* Weekly Title overlay — date range text */}
       {resolvedLayout.weeklyTitle && (
         <WeeklyTitleOverlay text={text} sceneDuration={dur} />
+      )}
+
+      {/* Centered hexagon + expanding ripple (Weekly Title 2) */}
+      {resolvedLayout.hexRipple && (
+        <HexRippleOverlay colors={colors} sceneDuration={dur} />
       )}
 
       {/* Killstreak overlay — number + username */}
