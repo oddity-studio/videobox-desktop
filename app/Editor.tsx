@@ -542,7 +542,9 @@ export default function Editor() {
       // Presets are bundled locally (public/picker/presets), not on the
       // CDN — served straight off the app's own origin via Next's static
       // export, so there's no asset-upload step when adding a new one.
-      const res = await fetch(`/picker/presets/${encodeURIComponent(name)}.json`);
+      // no-store: preset edits ship with image rebuilds; a heuristically
+      // cached copy in the browser otherwise keeps serving the old values.
+      const res = await fetch(`/picker/presets/${encodeURIComponent(name)}.json`, { cache: "no-store" });
       const data = await res.json();
       const parsed = videoPropsSchema.safeParse(data);
       if (!parsed.success) return;
@@ -554,7 +556,7 @@ export default function Editor() {
   // Fetch preset list, then auto-load S13 Demo
   useEffect(() => {
     // Local, not CDN — see loadPreset above for why.
-    fetch("/picker/presets/index.json")
+    fetch("/picker/presets/index.json", { cache: "no-store" })
       .then((r) => r.json())
       .then((names: string[]) => setPresetNames(names))
       .catch(() => {});
