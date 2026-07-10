@@ -88,6 +88,8 @@ export const isTop10Layout = (index: number): boolean =>
   SCENE_LAYOUTS[index]?.top10 === true;
 export const isSubtitleEnabledLayout = (index: number): boolean =>
   SCENE_LAYOUTS[index]?.subtitleEnabled === true;
+export const isHexRippleLayout = (index: number): boolean =>
+  SCENE_LAYOUTS[index]?.hexRipple === true;
 export const getLayoutDefaultDuration = (index: number): number | undefined =>
   SCENE_LAYOUTS[index]?.defaultDuration;
 export const getLayoutDefaultFontSize = (index: number): number | undefined =>
@@ -717,7 +719,18 @@ const BracketsLayer: React.FC<{ src: string; sceneDuration: number }> = ({ src, 
 // Centered hexagon outline in the palette highlight color, with a faded
 // hexagon ripple slowly expanding out from behind it. Pure frame-driven SVG
 // (no wall-clock animation), so preview and server renders are identical.
-const HexRippleOverlay: React.FC<{ colors: ColorScheme; sceneDuration: number }> = ({ colors, sceneDuration }) => {
+// Also hosts the scene's center text pair (text2 big, text3 half-size below)
+// and the bottom dark gradient the original Weekly Title got from its
+// background-video path.
+const HexRippleOverlay: React.FC<{
+  colors: ColorScheme;
+  sceneDuration: number;
+  text2?: string;
+  text3?: string;
+  fontConfig: FontConfig;
+  secondaryFontConfig?: FontConfig;
+  fontSize?: number;
+}> = ({ colors, sceneDuration, text2, text3, fontConfig, secondaryFontConfig, fontSize = 120 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -748,8 +761,26 @@ const HexRippleOverlay: React.FC<{ colors: ColorScheme; sceneDuration: number }>
   const r1 = ripple(0);
   const r2 = ripple(0.5);
 
+  // Hexagon vertical extent on the 1080x1920 canvas (center 960, radius R).
+  // The first center text's top edge anchors at 2/3 of the hexagon's
+  // height; the second text follows it in a flex column with a fixed gap,
+  // so the gap never changes when the user resizes the text.
+  const hexTop = 960 - R;
+  const textAnchorY = hexTop + (2 * R * 2) / 3;
+  const TEXT_GAP = 18;
+
   return (
     <AbsoluteFill style={{ zIndex: 11, opacity: alpha * exit, pointerEvents: "none" }}>
+      {/* Bottom dark gradient — same one the original Weekly Title's
+          background-video path draws (blendMode "normal" branch). */}
+      <div style={{
+        position: "absolute",
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: "50%",
+        background: `linear-gradient(to top, ${colors.dark}, transparent)`,
+      }} />
       <svg
         viewBox="0 0 1080 1920"
         width="100%"
@@ -767,6 +798,44 @@ const HexRippleOverlay: React.FC<{ colors: ColorScheme; sceneDuration: number }>
           <polygon points={hexPoints} fill="none" stroke={colors.highlight} strokeWidth={10} strokeLinejoin="round" />
         </g>
       </svg>
+      {/* Center text pair: big line + half-size line, constant gap */}
+      {(text2 || text3) && (
+        <div style={{
+          position: "absolute",
+          top: textAnchorY,
+          left: 0,
+          width: "100%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: TEXT_GAP,
+        }}>
+          {text2 && (
+            <p style={{
+              fontFamily: fontConfig.fontFamily,
+              fontWeight: 800,
+              fontSize,
+              lineHeight: 1,
+              color: "#ffffff",
+              margin: 0,
+              textTransform: "uppercase",
+              textAlign: "center",
+            }}>{text2}</p>
+          )}
+          {text3 && (
+            <p style={{
+              fontFamily: (secondaryFontConfig ?? fontConfig).fontFamily,
+              fontWeight: 700,
+              fontSize: fontSize / 2,
+              lineHeight: 1,
+              color: "#ffffff",
+              margin: 0,
+              textTransform: "uppercase",
+              textAlign: "center",
+            }}>{text3}</p>
+          )}
+        </div>
+      )}
     </AbsoluteFill>
   );
 };
@@ -1565,9 +1634,11 @@ const Top10Overlay: React.FC<{
   );
 };
 
-const SceneCard: React.FC<{ text: string; subtitle?: string; index: number; layoutIndex: number; colors: ColorScheme; fontConfig: FontConfig; secondaryFontConfig?: FontConfig; fontSize?: number; y?: number; x?: number; rotateZ?: number; rotateX?: number; perspective?: number; backgroundVideo?: Scene["backgroundVideo"]; sceneDuration?: number; overlayVideo?: string; portrait?: string; frameSyncMedia?: boolean }> = ({
+const SceneCard: React.FC<{ text: string; subtitle?: string; text2?: string; text3?: string; index: number; layoutIndex: number; colors: ColorScheme; fontConfig: FontConfig; secondaryFontConfig?: FontConfig; fontSize?: number; y?: number; x?: number; rotateZ?: number; rotateX?: number; perspective?: number; backgroundVideo?: Scene["backgroundVideo"]; sceneDuration?: number; overlayVideo?: string; portrait?: string; frameSyncMedia?: boolean }> = ({
   text,
   subtitle,
+  text2,
+  text3,
   index,
   layoutIndex,
   colors,
@@ -2077,7 +2148,15 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; index: number; layo
 
       {/* Centered hexagon + expanding ripple (Weekly Title 2) */}
       {resolvedLayout.hexRipple && (
-        <HexRippleOverlay colors={colors} sceneDuration={dur} />
+        <HexRippleOverlay
+          colors={colors}
+          sceneDuration={dur}
+          text2={text2}
+          text3={text3}
+          fontConfig={fontConfig}
+          secondaryFontConfig={secondaryFontConfig}
+          fontSize={resolvedFontSize}
+        />
       )}
 
       {/* Killstreak overlay — number + username */}
@@ -2753,7 +2832,7 @@ export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, mus
               ) : sceneLayout.titleCard ? (
                 <TitleCard colorScheme={colorScheme} fontConfig={fontConfig} layoutIndex={sceneLayoutIndex} text={scene.text} fontSize={scene.fontSize} />
               ) : (
-                <SceneCard text={scene.text} subtitle={scene.subtitle} index={i} layoutIndex={sceneLayoutIndex} colors={colorScheme} fontConfig={fontConfig} secondaryFontConfig={secondaryFontConfig} fontSize={scene.fontSize} y={scene.y} x={scene.x} rotateZ={scene.rotateZ} rotateX={scene.rotateX} perspective={scene.perspective} backgroundVideo={scene.backgroundVideo} sceneDuration={sceneFrames} overlayVideo={overlayVideo} portrait={scene.portrait} frameSyncMedia={frameSyncMedia} />
+                <SceneCard text={scene.text} subtitle={scene.subtitle} text2={scene.text2} text3={scene.text3} index={i} layoutIndex={sceneLayoutIndex} colors={colorScheme} fontConfig={fontConfig} secondaryFontConfig={secondaryFontConfig} fontSize={scene.fontSize} y={scene.y} x={scene.x} rotateZ={scene.rotateZ} rotateX={scene.rotateX} perspective={scene.perspective} backgroundVideo={scene.backgroundVideo} sceneDuration={sceneFrames} overlayVideo={overlayVideo} portrait={scene.portrait} frameSyncMedia={frameSyncMedia} />
               )}
             </Sequence>
             {/* Transition overlay */}

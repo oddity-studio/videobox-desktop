@@ -23,6 +23,11 @@ export const sceneSchema = z.object({
   // User-editable secondary caption — only shown/used by layouts with
   // SceneLayout.subtitleEnabled (the S13 Caption 1-4 templates).
   subtitle: z.string().optional(),
+  // Center text pair — only shown/used by layouts with
+  // SceneLayout.hexRipple (Weekly Title 2). text2 is the big line, text3
+  // sits directly below it at half the size with a fixed gap.
+  text2: z.string().optional(),
+  text3: z.string().optional(),
   layout: z.union([z.number(), z.string()]).optional(),
   fontSize: z.number().optional(),
   y: z.number().optional(),

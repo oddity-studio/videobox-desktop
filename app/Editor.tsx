@@ -7,7 +7,7 @@ import { Player, type PlayerRef, Thumbnail } from "@remotion/player";
 // Chrome / Firefox / Safari; no platform-specific quirks.
 import { OverlayScrollbarsComponent } from "overlayscrollbars-react";
 import "overlayscrollbars/overlayscrollbars.css";
-import { HelloWorld, LAYOUT_OPTIONS, FONT_OPTIONS, getLayoutControls, isBattleLayout, isWeeklyTitleLayout, isKillstreakOverlayLayout, isKingOverlayLayout, isSlideLinesOverlayLayout, isSlideLinesDuelLayout, isSlideLinesTourneyLayout, isSlideLinesFixedLayout, isTextBlockLayout, isPrizesGridLayout, isTop10Layout, isSubtitleEnabledLayout, PRIZE_LOGOS, getLayoutDefaultDuration, getLayoutDefaultFontSize, resolveLayoutIndex, getLayoutLabel, resolveBackgroundVideo, resolveSceneMusic } from "@/src/HelloWorld";
+import { HelloWorld, LAYOUT_OPTIONS, FONT_OPTIONS, getLayoutControls, isBattleLayout, isWeeklyTitleLayout, isKillstreakOverlayLayout, isKingOverlayLayout, isSlideLinesOverlayLayout, isSlideLinesDuelLayout, isSlideLinesTourneyLayout, isSlideLinesFixedLayout, isTextBlockLayout, isPrizesGridLayout, isTop10Layout, isSubtitleEnabledLayout, isHexRippleLayout, PRIZE_LOGOS, getLayoutDefaultDuration, getLayoutDefaultFontSize, resolveLayoutIndex, getLayoutLabel, resolveBackgroundVideo, resolveSceneMusic } from "@/src/HelloWorld";
 import { defaultVideoProps, videoPropsSchema, FPS, DEFAULT_SCENE_DURATION, getSceneFrames, getTotalFrames } from "@/src/types";
 import type { VideoProps, Scene, ColorScheme } from "@/src/types";
 import { assetUrl, feedUrl, renderApiUrl } from "@/src/config";
@@ -2218,6 +2218,27 @@ export default function Editor() {
             value={scene.subtitle || ""}
             onChange={(e) => updateScene(i, "subtitle", e.target.value)}
             placeholder={`Subtitle ${i + 1}...`}
+          />
+        </>
+      )}
+      {/* Center text pair, only for hex-ripple layouts (Weekly Title 2) —
+          rendered stacked in the middle of the scene by HexRippleOverlay;
+          Center Text 1 is double the size of Center Text 2. */}
+      {isHexRippleLayout(_layoutIdx) && (
+        <>
+          <span style={{ ...styles.sceneInputCaption, marginTop: 6 }}>Center Text 1</span>
+          <input
+            style={styles.sceneInput}
+            value={scene.text2 || ""}
+            onChange={(e) => updateScene(i, "text2", e.target.value)}
+            placeholder="Big center line..."
+          />
+          <span style={{ ...styles.sceneInputCaption, marginTop: 6 }}>Center Text 2</span>
+          <input
+            style={styles.sceneInput}
+            value={scene.text3 || ""}
+            onChange={(e) => updateScene(i, "text3", e.target.value)}
+            placeholder="Small center line..."
           />
         </>
       )}

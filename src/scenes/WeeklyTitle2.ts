@@ -11,7 +11,9 @@ const layout: SceneLayout = {
   weeklyTitle: true,
   hexRipple: true,
   defaultDuration: 5,
-  textDefaults: { y: 0, fontSize: 72, mode: "flat" },
+  // fontSize drives the big center text (text2); text3 renders at half of
+  // it. The bottom week title stays fixed at 72 (WeeklyTitleOverlay).
+  textDefaults: { y: 0, fontSize: 120, mode: "flat" },
   customStyle: () => ({ background: "#000000", textColor: "#ffffff", textGlow: "none" }),
   customControls: [{ type: "weekPicker" }],
 };
