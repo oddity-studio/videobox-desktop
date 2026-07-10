@@ -762,11 +762,11 @@ const HexRippleOverlay: React.FC<{
   const r2 = ripple(0.5);
 
   // Hexagon vertical extent on the 1080x1920 canvas (center 960, radius R).
-  // The first center text's top edge anchors at 2/3 of the hexagon's
+  // The first center text's top edge anchors 10% into the hexagon's
   // height; the second text follows it in a flex column with a fixed gap,
   // so the gap never changes when the user resizes the text.
   const hexTop = 960 - R;
-  const textAnchorY = hexTop + (2 * R * 2) / 3;
+  const textAnchorY = hexTop + 2 * R * 0.1;
   const TEXT_GAP = 18;
 
   return (
