@@ -762,12 +762,21 @@ const HexRippleOverlay: React.FC<{
   const r2 = ripple(0.5);
 
   // Hexagon vertical extent on the 1080x1920 canvas (center 960, radius R).
-  // The first center text's top edge anchors 10% into the hexagon's
+  // The first center text's top edge anchors 25% into the hexagon's
   // height; the second text follows it in a flex column with a fixed gap,
   // so the gap never changes when the user resizes the text.
   const hexTop = 960 - R;
-  const textAnchorY = hexTop + 2 * R * 0.1;
+  const textAnchorY = hexTop + 2 * R * 0.25;
   const TEXT_GAP = 18;
+
+  // Palette-driven text fill: highlight up top softly blending toward the
+  // dark color at the bottom of each line (gradient clipped to the glyphs).
+  const gradientTextFill: React.CSSProperties = {
+    backgroundImage: `linear-gradient(180deg, ${colors.highlight} 25%, ${colors.dark} 100%)`,
+    WebkitBackgroundClip: "text",
+    backgroundClip: "text",
+    color: "transparent",
+  };
 
   return (
     <AbsoluteFill style={{ zIndex: 11, opacity: alpha * exit, pointerEvents: "none" }}>
@@ -816,10 +825,10 @@ const HexRippleOverlay: React.FC<{
               fontWeight: 800,
               fontSize,
               lineHeight: 1,
-              color: "#ffffff",
               margin: 0,
               textTransform: "uppercase",
               textAlign: "center",
+              ...gradientTextFill,
             }}>{text2}</p>
           )}
           {text3 && (
@@ -828,10 +837,10 @@ const HexRippleOverlay: React.FC<{
               fontWeight: 700,
               fontSize: fontSize / 2,
               lineHeight: 1,
-              color: "#ffffff",
               margin: 0,
               textTransform: "uppercase",
               textAlign: "center",
+              ...gradientTextFill,
             }}>{text3}</p>
           )}
         </div>
