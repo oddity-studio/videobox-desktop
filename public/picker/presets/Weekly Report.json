@@ -3,59 +3,69 @@
   "colorScheme": {
     "dark": "#890659",
     "light": "#7229fa",
-    "highlight": "#ffe014"
+    "highlight": "#ffae00"
   },
+  "music": "Weekly.mp3",
   "font": "Exo 2",
   "overlayVideo": "Grunge.mp4",
   "scenes": [
     {
       "text": "Apr 5th – Apr 12th",
       "layout": "Weekly Title 2",
-      "fontSize": 120,
-      "duration": 5
-    },
-    {
-      "text": "Player1|Player1|Player1\n786|454|121",
-      "fontSize": 122,
-      "layout": "Weekly Stats 1",
-      "duration": 6
-    },
-    {
-      "text": "156|Player1",
-      "fontSize": 150,
-      "layout": "Killstreak",
-      "duration": 8,
+      "fontSize": 262,
+      "duration": 5,
       "backgroundVideo": {
         "src": "",
         "muted": false
+      },
+      "text2": "150",
+      "text3": "WIN STREAK"
+    },
+    {
+      "text": "Player1|Player1|Player1\n786|454|121",
+      "layout": "Weekly Stats 1",
+      "fontSize": 122,
+      "duration": 6,
+      "sceneMusicMuted": true
+    },
+    {
+      "text": "156|Player1",
+      "layout": "Killstreak",
+      "fontSize": 150,
+      "duration": 8,
+      "backgroundVideo": {
+        "src": "",
+        "muted": true
       }
     },
     {
       "text": "Player1|Player1|Player1\n215|655|45",
-      "fontSize": 120,
       "layout": "Weekly Stats 2",
-      "duration": 6
+      "fontSize": 120,
+      "duration": 6,
+      "sceneMusicMuted": true
     },
     {
       "text": "5|Player1",
-      "fontSize": 150,
       "layout": "King",
+      "fontSize": 150,
       "duration": 8,
       "backgroundVideo": {
         "src": "",
-        "muted": false
+        "muted": true
       }
     },
     {
       "text": "",
-      "fontSize": 40,
       "layout": "Top10",
-      "duration": 10
+      "fontSize": 40,
+      "duration": 10,
+      "sceneMusicMuted": true
     },
     {
       "text": "",
-      "fontSize": 150,
       "layout": "Outro",
+      "fontSize": 150,
       "duration": 10,
       "backgroundVideo": {
         "src": "",
@@ -63,5 +73,5 @@
       }
     }
   ],
-  "music": "none"
+  "secondaryFont": "Big Shoulders"
 }
