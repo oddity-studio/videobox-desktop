@@ -3589,6 +3589,11 @@ export default function Editor() {
                             defaultText = "3|Player One";
                           } else if (isTextBlockLayout(opt.index)) {
                             defaultText = opt.label === "Profile" ? "USER\nPROFILE\nPLAYER ONE" : "SEASON 10\nCHAMPION\nPLAYER ONE";
+                          } else if (isWeeklyTitleLayout(opt.index)) {
+                            // Pre-fill the current week so the date shows
+                            // immediately — the week picker only writes on
+                            // change, not on mount.
+                            defaultText = currentWeekRangeText();
                           }
                           setProps((prev) => {
                             if (galleryMode === "swap") {
@@ -3693,6 +3698,27 @@ export default function Editor() {
     </div>
   );
 }
+
+// Current week formatted like the week picker writes it ("Mar 2nd – Mar
+// 9th"). Used as the default text when adding a weekly-title scene from the
+// gallery — otherwise the picker DISPLAYS the current week but scene.text
+// stays empty until the user touches it, and the date never renders.
+const currentWeekRangeText = (): string => {
+  const now = new Date();
+  const jan1 = new Date(now.getFullYear(), 0, 1);
+  const days = Math.floor((now.getTime() - jan1.getTime()) / 86400000);
+  const week = Math.ceil((days + jan1.getDay() + 1) / 7);
+  const jan4 = new Date(now.getFullYear(), 0, 4);
+  const mon = new Date(jan4);
+  mon.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + (week - 1) * 7);
+  const sun = new Date(mon);
+  sun.setDate(mon.getDate() - 1);
+  const nextSun = new Date(sun);
+  nextSun.setDate(sun.getDate() + 7);
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const ord = (n: number) => n + (n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th");
+  return `${months[sun.getMonth()]} ${ord(sun.getDate())} – ${months[nextSun.getMonth()]} ${ord(nextSun.getDate())}`;
+};
 
 const styles: Record<string, React.CSSProperties> = {
   container: {

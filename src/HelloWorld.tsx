@@ -735,7 +735,9 @@ const HexRippleOverlay: React.FC<{
   const { fps } = useVideoConfig();
 
   // Pointy-top hexagon around the origin; scaled/translated via <g>.
-  const R = 190;
+  const R = 285;
+  // Hexagon center: horizontal middle, 300px below the canvas center.
+  const HEX_CY = 1260;
   const hexPoints = Array.from({ length: 6 }, (_, i) => {
     const a = ((60 * i - 90) * Math.PI) / 180;
     return `${(R * Math.cos(a)).toFixed(2)},${(R * Math.sin(a)).toFixed(2)}`;
@@ -761,11 +763,11 @@ const HexRippleOverlay: React.FC<{
   const r1 = ripple(0);
   const r2 = ripple(0.5);
 
-  // Hexagon vertical extent on the 1080x1920 canvas (center 960, radius R).
-  // The first center text's top edge anchors 25% into the hexagon's
+  // Hexagon vertical extent on the 1080x1920 canvas (center HEX_CY, radius
+  // R). The first center text's top edge anchors 25% into the hexagon's
   // height; the second text follows it in a flex column with a fixed gap,
   // so the gap never changes when the user resizes the text.
-  const hexTop = 960 - R;
+  const hexTop = HEX_CY - R;
   const textAnchorY = hexTop + 2 * R * 0.25;
   const TEXT_GAP = 18;
 
@@ -797,13 +799,13 @@ const HexRippleOverlay: React.FC<{
         style={{ position: "absolute", inset: 0 }}
       >
         {/* Ripples render first so they sit behind the main outline */}
-        <g transform={`translate(540 960) scale(${r1.scale})`} opacity={r1.opacity}>
+        <g transform={`translate(540 ${HEX_CY}) scale(${r1.scale})`} opacity={r1.opacity}>
           <polygon points={hexPoints} fill="none" stroke={colors.highlight} strokeWidth={6 / r1.scale} />
         </g>
-        <g transform={`translate(540 960) scale(${r2.scale})`} opacity={r2.opacity}>
+        <g transform={`translate(540 ${HEX_CY}) scale(${r2.scale})`} opacity={r2.opacity}>
           <polygon points={hexPoints} fill="none" stroke={colors.highlight} strokeWidth={6 / r2.scale} />
         </g>
-        <g transform="translate(540 960)">
+        <g transform={`translate(540 ${HEX_CY})`}>
           <polygon points={hexPoints} fill="none" stroke={colors.highlight} strokeWidth={10} strokeLinejoin="round" />
         </g>
       </svg>
