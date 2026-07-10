@@ -13,6 +13,7 @@ import {
   // ships H.264). It also falls back to plain <video> in @remotion/player so
   // the editor preview behaves identically.
   OffthreadVideo as Video,
+  Easing,
   // Used ONLY during server renders (gated on frameSyncMedia) for looping
   // media: plain <video autoPlay>/<img> play on WALL CLOCK, which is
   // undefined during a render — frames aren't captured in real time, so the
@@ -743,10 +744,52 @@ const HexRippleOverlay: React.FC<{
     return `${(R * Math.cos(a)).toFixed(2)},${(R * Math.sin(a)).toFixed(2)}`;
   }).join(" ");
 
-  // Entrance fade (matches the title text's timing family) + scene exit fade.
-  const alpha = interpolate(frame, [0, fps * 0.5], [0, 1], { extrapolateRight: "clamp" });
+  const t = frame / fps;
   const exitStart = sceneDuration - 30;
   const exit = frame > exitStart ? interpolate(frame, [exitStart, sceneDuration], [1, 0], { extrapolateRight: "clamp" }) : 1;
+
+  // ── Intro timeline (seconds) ────────────────────────────────────────
+  // A 0.0–0.9  big 500px WEEKLY/REPORT swipe diagonally across and exit
+  // B 0.9–1.7  hexagon + ripples fade in while zooming up to full size
+  // C 1.7–2.6  200px WEEKLY (from right) / REPORT (from left) cross and
+  //            settle 50px from the left/right screen edges
+  // D 2.7+     center text2 fades in, then text3, then the date (the date
+  //            is WeeklyTitleOverlay with fadeStartSec=3.4)
+  const SWIPE_END = 0.9;
+  const HEX_IN_START = 0.9;
+  const HEX_IN_END = 1.7;
+  const SETTLE_START = 1.7;
+  const TEXT2_IN = 2.7;
+  const TEXT3_IN = 3.05;
+  const FADE = 0.35;
+
+  const fugaz = FONT_MAP["Fugaz One"];
+
+  // Phase A: linear sweep. WEEKLY left→right, REPORT right→left, both in a
+  // 45°-rotated frame so they slash across the screen and pass each other.
+  const swipeP = interpolate(t, [0, SWIPE_END], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const weeklySwipeX = interpolate(swipeP, [0, 1], [-3400, 3400]);
+  const reportSwipeX = interpolate(swipeP, [0, 1], [3400, -3400]);
+
+  // Phase B: hexagon zoom+fade.
+  const hexAlpha = interpolate(t, [HEX_IN_START, HEX_IN_END], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const hexScale = interpolate(t, [HEX_IN_START, HEX_IN_END], [0.55, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.out(Easing.cubic),
+  });
+
+  // Phase C: springs overshoot slightly ("pass each other a little") and
+  // settle. WEEKLY comes from off the right edge and lands 50px from the
+  // left; REPORT mirrors it.
+  const settleFrame = Math.max(0, frame - Math.round(SETTLE_START * fps));
+  const settleSpr = spring({ frame: settleFrame, fps, config: { damping: 16, mass: 1.1 } });
+  const weeklyLeft = interpolate(settleSpr, [0, 1], [1300, 50]);
+  const reportRight = interpolate(settleSpr, [0, 1], [1300, 50]);
+
+  // Phase D: staggered fades for the center pair.
+  const text2Alpha = interpolate(t, [TEXT2_IN, TEXT2_IN + FADE], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const text3Alpha = interpolate(t, [TEXT3_IN, TEXT3_IN + FADE], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
 
   // Ripple: every loop a faded outline starts at the hexagon and slowly
   // grows outward while fading away. Two copies half a loop apart so a new
@@ -780,8 +823,32 @@ const HexRippleOverlay: React.FC<{
     color: "transparent",
   };
 
+  const swipeLineStyle: React.CSSProperties = {
+    fontFamily: fugaz.fontFamily,
+    fontWeight: 400,
+    fontSize: 500,
+    lineHeight: 1,
+    color: "#ffffff",
+    margin: 0,
+    whiteSpace: "nowrap",
+    position: "absolute",
+    left: "50%",
+  };
+
+  const settledLineStyle: React.CSSProperties = {
+    fontFamily: fugaz.fontFamily,
+    fontWeight: 400,
+    fontSize: 200,
+    lineHeight: 1,
+    color: "#ffffff",
+    margin: 0,
+    whiteSpace: "nowrap",
+    position: "absolute",
+    filter: "drop-shadow(5px 6px 6px rgba(0,0,0,0.65))",
+  };
+
   return (
-    <AbsoluteFill style={{ zIndex: 11, opacity: alpha * exit, pointerEvents: "none" }}>
+    <AbsoluteFill style={{ zIndex: 11, opacity: exit, pointerEvents: "none", overflow: "hidden" }}>
       {/* Bottom dark gradient — same one the original Weekly Title's
           background-video path draws (blendMode "normal" branch). */}
       <div style={{
@@ -792,11 +859,19 @@ const HexRippleOverlay: React.FC<{
         height: "50%",
         background: `linear-gradient(to top, ${colors.dark}, transparent)`,
       }} />
+
+      {/* Phase B+: hexagon + ripples zoom-fade in */}
       <svg
         viewBox="0 0 1080 1920"
         width="100%"
         height="100%"
-        style={{ position: "absolute", inset: 0 }}
+        style={{
+          position: "absolute",
+          inset: 0,
+          opacity: hexAlpha,
+          transform: `scale(${hexScale})`,
+          transformOrigin: `540px ${HEX_CY}px`,
+        }}
       >
         {/* Ripples render first so they sit behind the main outline */}
         <g transform={`translate(540 ${HEX_CY}) scale(${r1.scale})`} opacity={r1.opacity}>
@@ -809,7 +884,31 @@ const HexRippleOverlay: React.FC<{
           <polygon points={hexPoints} fill="none" stroke={colors.highlight} strokeWidth={10} strokeLinejoin="round" />
         </g>
       </svg>
-      {/* Center text pair: big line + half-size line, constant gap */}
+
+      {/* Phase A: giant diagonal WEEKLY/REPORT swipe */}
+      {t < SWIPE_END + 0.1 && (
+        <AbsoluteFill style={{ overflow: "hidden" }}>
+          <div style={{
+            position: "absolute",
+            left: "50%",
+            top: "50%",
+            transform: "rotate(-45deg)",
+          }}>
+            <p style={{ ...swipeLineStyle, top: -520, transform: `translate(-50%, 0) translateX(${weeklySwipeX}px)` }}>WEEKLY</p>
+            <p style={{ ...swipeLineStyle, top: 20, transform: `translate(-50%, 0) translateX(${reportSwipeX}px)` }}>REPORT</p>
+          </div>
+        </AbsoluteFill>
+      )}
+
+      {/* Phase C+: 200px lines cross and settle near the screen edges */}
+      {t >= SETTLE_START && (
+        <>
+          <p style={{ ...settledLineStyle, top: 150, left: weeklyLeft }}>WEEKLY</p>
+          <p style={{ ...settledLineStyle, top: 370, right: reportRight }}>REPORT</p>
+        </>
+      )}
+
+      {/* Phase D: center text pair fades in line by line */}
       {(text2 || text3) && (
         <div style={{
           position: "absolute",
@@ -830,6 +929,8 @@ const HexRippleOverlay: React.FC<{
               margin: 0,
               textTransform: "uppercase",
               textAlign: "center",
+              opacity: text2Alpha,
+              filter: "drop-shadow(5px 6px 6px rgba(0,0,0,0.65))",
               ...gradientTextFill,
             }}>{text2}</p>
           )}
@@ -842,6 +943,8 @@ const HexRippleOverlay: React.FC<{
               margin: 0,
               textTransform: "uppercase",
               textAlign: "center",
+              opacity: text3Alpha,
+              filter: "drop-shadow(5px 6px 6px rgba(0,0,0,0.65))",
               ...gradientTextFill,
             }}>{text3}</p>
           )}
@@ -851,11 +954,11 @@ const HexRippleOverlay: React.FC<{
   );
 };
 
-const WeeklyTitleOverlay: React.FC<{ text: string; sceneDuration: number }> = ({ text, sceneDuration }) => {
+const WeeklyTitleOverlay: React.FC<{ text: string; sceneDuration: number; bottomPx?: number; fadeStartSec?: number }> = ({ text, sceneDuration, bottomPx = 300, fadeStartSec = 2.0 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const t = frame / fps;
-  const FADE_START = 2.0;
+  const FADE_START = fadeStartSec;
   const FADE_DUR = 0.5;
   const localT = t - FADE_START;
   const alpha = localT >= 0 ? Math.min(localT / FADE_DUR, 1.0) : 0;
@@ -868,7 +971,7 @@ const WeeklyTitleOverlay: React.FC<{ text: string; sceneDuration: number }> = ({
   return (
     <div style={{
       position: "absolute",
-      bottom: 300,
+      bottom: bottomPx,
       left: 0,
       width: "100%",
       textAlign: "center",
@@ -2154,7 +2257,14 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; text2?: string; tex
 
       {/* Weekly Title overlay — date range text */}
       {resolvedLayout.weeklyTitle && (
-        <WeeklyTitleOverlay text={text} sceneDuration={dur} />
+        <WeeklyTitleOverlay
+          text={text}
+          sceneDuration={dur}
+          // Weekly Title 2: date sits 50px lower and waits for the intro
+          // sequence (swipe → hexagon → WEEKLY/REPORT settle → texts).
+          bottomPx={resolvedLayout.hexRipple ? 250 : 300}
+          fadeStartSec={resolvedLayout.hexRipple ? 3.4 : 2.0}
+        />
       )}
 
       {/* Centered hexagon + expanding ripple (Weekly Title 2) */}
