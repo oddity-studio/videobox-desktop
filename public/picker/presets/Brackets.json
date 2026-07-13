@@ -1,0 +1,69 @@
+{
+  "seasonNumber": "01",
+  "colorScheme": {
+    "dark": "#6c00f0",
+    "light": "#ce1fff",
+    "highlight": "#ff0ade"
+  },
+  "music": "Tournament.mp3",
+  "transition": "flash.json",
+  "font": "Exo 2",
+  "overlayVideo": "rough.mp4",
+  "scenes": [
+    {
+      "text": "Round 3 Unlocked",
+      "layout": "S10 Logo",
+      "fontSize": 100
+    },
+    {
+      "text": "THE BRACKET'S ON FYRE",
+      "layout": "Tourney",
+      "fontSize": 166,
+      "duration": 2
+    },
+    {
+      "text": "BrainGotBlaps|Rasmus\nLOVEDEAD|Sik TrAKz\n0,1\n1,0",
+      "layout": "Bracket",
+      "fontSize": 100,
+      "duration": 4
+    },
+    {
+      "text": "EazyMoneyondatrack|totally not fruity\nEugeneMack|TheMystery\n0,0\n1,1",
+      "fontSize": 100,
+      "layout": "Bracket",
+      "duration": 4
+    },
+    {
+      "text": "Dink the Poof|MythZerO\nSugarpopz|BRYCKZ\n1,1\n1,2",
+      "fontSize": 100,
+      "layout": "Bracket",
+      "duration": 4
+    },
+    {
+      "text": "Dav Swider|CannaprizeBEATS\nWyndxgo|Hi I'm Ari\n1,1\n1,3",
+      "fontSize": 100,
+      "layout": "Bracket",
+      "duration": 4
+    },
+    {
+      "text": "Insane prize pool by",
+      "layout": "S12 Scene1",
+      "fontSize": 180
+    },
+    {
+      "text": "PRIZES HERE,Native Insturments.png,UnitedPlugins.png,Apogee.png,McDSP.png,Melda.png,Baby Audio.png,iZotope.png,Safari Audio.png",
+      "layout": "Prizes",
+      "fontSize": 150
+    },
+    {
+      "text": "THE BELT AWAITS",
+      "layout": "Belt Stomp",
+      "fontSize": 200
+    },
+    {
+      "text": "VOTING STARTS MAY 3RD",
+      "layout": "S10 Logo",
+      "fontSize": 100
+    }
+  ]
+}

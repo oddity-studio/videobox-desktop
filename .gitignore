@@ -4,7 +4,18 @@ out/
 tsconfig.tsbuildinfo
 *.log
 .DS_Store
-public/
+# Exception: picker presets are bundled locally into the web image
+# instead of the CDN (see the matching exception in .dockerignore, and
+# the /picker/presets/* fetches in app/Editor.tsx) — they need to be
+# tracked so a fresh clone actually has them, not just this machine.
+# Git won't descend into a directory excluded by a trailing-slash
+# pattern even with later `!` negations (unlike Docker's .dockerignore),
+# so this has to un-ignore one level at a time instead of a flat
+# public/ + nested negations.
+public/*
+!public/picker
+public/picker/*
+!public/picker/presets
 .env
 .env.*
 !.env.example
@@ -13,3 +24,5 @@ public/
 # — was previously unprotected since only .env/.env.* were ignored, not
 # this directory itself.
 env/
+*.json.key
+*-signer.json

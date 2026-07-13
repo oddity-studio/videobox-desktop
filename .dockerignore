@@ -4,9 +4,17 @@ out/
 tsconfig.tsbuildinfo
 *.log
 .DS_Store
-# public/ excluded from the render image. Asset files (videos, audio,
-# images, Lottie transition JSONs) are served from the CDN. The render
-# server fetches transition JSONs once on startup (see
-# loadTransitionPreloads in server.mjs) and proxies everything else
-# through the /cache route (singleflight + on-disk caching).
+# public/ excluded from both images. Asset files (videos, audio, images,
+# Lottie transition JSONs) are served from the CDN. The render server
+# fetches transition JSONs once on startup (see loadTransitionPreloads in
+# server.mjs) and proxies everything else through the /cache route
+# (singleflight + on-disk caching).
+#
+# Exception: picker presets are bundled locally into the web image's
+# static export instead of the CDN, so adding a new preset is just a repo
+# commit — no separate upload step. Every ancestor dir needs its own
+# negation line for dockerignore to re-include the leaf.
 public/
+!public/picker/
+!public/picker/presets/
+!public/picker/presets/**

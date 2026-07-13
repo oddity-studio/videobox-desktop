@@ -7,7 +7,7 @@ import { Player, type PlayerRef, Thumbnail } from "@remotion/player";
 // Chrome / Firefox / Safari; no platform-specific quirks.
 import { OverlayScrollbarsComponent } from "overlayscrollbars-react";
 import "overlayscrollbars/overlayscrollbars.css";
-import { HelloWorld, LAYOUT_OPTIONS, FONT_OPTIONS, getLayoutControls, isBattleLayout, isWeeklyTitleLayout, isKillstreakOverlayLayout, isKingOverlayLayout, isSlideLinesOverlayLayout, isSlideLinesDuelLayout, isSlideLinesTourneyLayout, isSlideLinesFixedLayout, isTextBlockLayout, isPrizesGridLayout, isTop10Layout, PRIZE_LOGOS, getLayoutDefaultDuration, getLayoutDefaultFontSize, resolveLayoutIndex, getLayoutLabel, resolveBackgroundVideo, resolveSceneMusic } from "@/src/HelloWorld";
+import { HelloWorld, LAYOUT_OPTIONS, FONT_OPTIONS, getLayoutControls, isBattleLayout, isWeeklyTitleLayout, isKillstreakOverlayLayout, isKingOverlayLayout, isSlideLinesOverlayLayout, isSlideLinesDuelLayout, isSlideLinesTourneyLayout, isSlideLinesFixedLayout, isTextBlockLayout, isPrizesGridLayout, isTop10Layout, isSubtitleEnabledLayout, PRIZE_LOGOS, getLayoutDefaultDuration, getLayoutDefaultFontSize, resolveLayoutIndex, getLayoutLabel, resolveBackgroundVideo, resolveSceneMusic } from "@/src/HelloWorld";
 import { defaultVideoProps, videoPropsSchema, FPS, DEFAULT_SCENE_DURATION, getSceneFrames, getTotalFrames } from "@/src/types";
 import type { VideoProps, Scene, ColorScheme } from "@/src/types";
 import { assetUrl, feedUrl, renderApiUrl } from "@/src/config";
@@ -548,7 +548,10 @@ export default function Editor() {
 
   const loadPreset = useCallback(async (name: string) => {
     try {
-      const res = await fetch(assetUrl(`picker/presets/${encodeURIComponent(name)}.json`));
+      // Presets are bundled locally (public/picker/presets), not on the
+      // CDN — served straight off the app's own origin via Next's static
+      // export, so there's no asset-upload step when adding a new one.
+      const res = await fetch(`/picker/presets/${encodeURIComponent(name)}.json`);
       const data = await res.json();
       const parsed = videoPropsSchema.safeParse(data);
       if (!parsed.success) return;
@@ -557,9 +560,10 @@ export default function Editor() {
     } catch {}
   }, []);
 
-  // Fetch preset list, then auto-load Demo
+  // Fetch preset list, then auto-load S13 Demo
   useEffect(() => {
-    fetch(assetUrl("picker/presets/index.json"))
+    // Local, not CDN — see loadPreset above for why.
+    fetch("/picker/presets/index.json")
       .then((r) => r.json())
       .then((names: string[]) => setPresetNames(names))
       .catch(() => {});
@@ -571,7 +575,7 @@ export default function Editor() {
 
   useEffect(() => {
     if (presetNames.length > 0 && !selectedPreset) {
-      if (presetNames.includes("Demo")) loadPreset("Demo");
+      if (presetNames.includes("S13 Demo")) loadPreset("S13 Demo");
     }
   }, [presetNames, loadPreset, selectedPreset]);
 
@@ -1561,7 +1565,7 @@ export default function Editor() {
   const renderSceneRow = (scene: Scene, i: number, opts?: { compact?: boolean }) => {
     const compact = opts?.compact === true;
     // Per-layout caption customisation. Most layouts fall through to the
-    // generic "SCENE TEXT" caption above the main input, but a handful
+    // generic "TITLE" caption above the main input, but a handful
     // get tailored labels — and some have multiple inputs that each need
     // their own caption (handled inside the relevant variants below).
     const _layoutIdx = resolveLayoutIndex(scene.layout, i);
@@ -1572,7 +1576,7 @@ export default function Editor() {
         : _layoutLabel === "Weekly Stats 2"
           ? [["MOST VOTES CAST", "SCORE"], ["MOST COMMENTS", "SCORE"], ["BIGGEST XP JUMP", "SCORE"]]
           : null;
-    let _outerCaption: string | null = "Scene Text";
+    let _outerCaption: string | null = "Title";
     if (isWeeklyTitleLayout(_layoutIdx)) _outerCaption = "Date";
     else if (isBattleLayout(_layoutIdx)) _outerCaption = null;     // PLAYER 1 / PLAYER 2 inside
     else if (_slideStatsCaptions) _outerCaption = null;            // per-column captions inside
@@ -1629,10 +1633,13 @@ export default function Editor() {
     >
       {/* Left-side drag handle + order number removed — the top-of-row
           divider strip handles reordering now. */}
-      {/* Main input column. The outer caption defaults to "Scene Text"
+      {/* Main input column. The outer caption defaults to "Title"
           but switches to "Date" for Weekly Title, or is omitted when
           the variant below renders its own per-input captions (Battle
-          → PLAYER 1/2, Weekly Stats → per-column). */}
+          → PLAYER 1/2, Weekly Stats → per-column). Layouts with
+          subtitleEnabled (S13 Caption 1-4) get a second "Subtitle"
+          input rendered below the main one — see the closing of
+          sceneInputCell further down. */}
       <div style={styles.sceneInputCell}>
         {_outerCaption && (
           <span style={styles.sceneInputCaption}>{_outerCaption}</span>
@@ -2225,8 +2232,22 @@ export default function Editor() {
           style={styles.sceneInput}
           value={scene.text}
           onChange={(e) => updateScene(i, "text", e.target.value)}
-          placeholder={`Scene ${i + 1} text...`}
+          placeholder={`Title ${i + 1}...`}
         />
+      )}
+      {/* Second input, only for layouts that opted in (S13 Caption 1-4) —
+          renders the live subtitle below the slide-in stripe via
+          SceneCard's subtitle prop in HelloWorld.tsx. */}
+      {isSubtitleEnabledLayout(_layoutIdx) && (
+        <>
+          <span style={{ ...styles.sceneInputCaption, marginTop: 6 }}>Subtitle</span>
+          <input
+            style={styles.sceneInput}
+            value={scene.subtitle || ""}
+            onChange={(e) => updateScene(i, "subtitle", e.target.value)}
+            placeholder={`Subtitle ${i + 1}...`}
+          />
+        </>
       )}
       </div>
       {/* Font-size input removed from per-row controls — it's now a
@@ -2789,6 +2810,26 @@ export default function Editor() {
                   value={props.font || "Dela Gothic One"}
                   onChange={(e) =>
                     setProps((prev) => ({ ...prev, font: e.target.value }))
+                  }
+                >
+                  {FONT_OPTIONS.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {/* Falls back to Font above when unset (see HelloWorld's
+                  secondaryFontConfig). Currently drives the Subtitle text
+                  in S13 Caption 1-4, but kept generic for future secondary
+                  text elements. */}
+              <label style={styles.styleLabel}>
+                Secondary Font
+                <select
+                  style={{ ...styles.layoutSelect, width: "100%" }}
+                  value={props.secondaryFont || props.font || "Dela Gothic One"}
+                  onChange={(e) =>
+                    setProps((prev) => ({ ...prev, secondaryFont: e.target.value }))
                   }
                 >
                   {FONT_OPTIONS.map((f) => (

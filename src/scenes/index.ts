@@ -1,5 +1,15 @@
 import type { SceneLayout } from "../sceneUtils";
 
+import S13Logo from "./S13Logo";
+import S13Cover from "./S13Cover";
+import S13Scene1 from "./S13Scene1";
+import S13Scene2 from "./S13Scene2";
+import S13Scene3 from "./S13Scene3";
+import S13Scene4 from "./S13Scene4";
+import S13Scene5 from "./S13Scene5";
+import S13Scene6 from "./S13Scene6";
+import S13Scene7 from "./S13Scene7";
+import S13Scene8 from "./S13Scene8";
 import S12Scene1 from "./S12Scene1";
 import S12Scene2 from "./S12Scene2";
 import S12Scene3 from "./S12Scene3";
@@ -33,7 +43,20 @@ import Outro from "./Outro";
 import Prizes from "./Prizes";
 import Top10 from "./Top10";
 
+// Category headings in the picker render in first-seen order across this
+// array (see Editor.tsx's `categories` reduce). Season 13 entries must stay
+// ahead of any other category's first entry to keep "Season 13" on top.
 export const SCENE_LAYOUTS: SceneLayout[] = [
+  S13Logo,
+  S13Cover,
+  S13Scene2, // Head On
+  S13Scene3, // Left Align
+  S13Scene1, // Caption 1
+  S13Scene5, // Caption 2
+  S13Scene7, // Caption 3
+  S13Scene8, // Caption 4
+  S13Scene4, // Scroll
+  S13Scene6, // Marquee
   S12Scene1,
   S12Scene2,
   S12Scene3,

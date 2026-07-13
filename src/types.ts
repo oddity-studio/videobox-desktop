@@ -20,6 +20,9 @@ export const backgroundVideoSchema = z.object({
 
 export const sceneSchema = z.object({
   text: z.string(),
+  // User-editable secondary caption — only shown/used by layouts with
+  // SceneLayout.subtitleEnabled (the S13 Caption 1-4 templates).
+  subtitle: z.string().optional(),
   layout: z.union([z.number(), z.string()]).optional(),
   fontSize: z.number().optional(),
   y: z.number().optional(),
@@ -39,6 +42,9 @@ export const videoPropsSchema = z.object({
   music: z.string().optional(),
   transition: z.string().optional(),
   font: z.string().optional(),
+  // Used for secondary text (currently: the Subtitle in S13 Caption 1-4).
+  // Falls back to `font` if unset — see HelloWorld's secondaryFontConfig.
+  secondaryFont: z.string().optional(),
   overlayVideo: z.string().optional(),
   scenes: z.array(sceneSchema),
 });
