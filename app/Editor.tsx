@@ -315,6 +315,7 @@ export default function Editor() {
   // progress is 0..1 (only meaningful while status === "rendering")
   const [serverRenderStatus, setServerRenderStatus] = useState<string>("");
   const [serverRenderProgress, setServerRenderProgress] = useState(0);
+  const [serverRenderEtaMs, setServerRenderEtaMs] = useState<number | null>(null);
   // Which server render is currently active. null when idle; otherwise
   // tracks the mode that fired so the progress fill stays put if the
   // toggle switch is moved mid-render.
@@ -584,6 +585,11 @@ export default function Editor() {
     (acc[opt.category] ??= []).push(opt);
     return acc;
   }, {});
+  const categoryEntries = Object.entries(categories).sort(([left], [right]) => {
+    if (left === "Season 13") return -1;
+    if (right === "Season 13") return 1;
+    return 0;
+  });
 
   const handleSave = useCallback(() => {
     // Strip blob: URLs from backgroundVideo since they're session-only, but keep muted state.
@@ -845,8 +851,8 @@ export default function Editor() {
     return new Blob([target.buffer], { type: "video/mp4" });
   }, [exportRes]);
 
-  // Server-side render via the videobox render server that runs inside
-  // the audeobox_fastapi container. The endpoint is async + poll-based so
+  // Server-side render via the dedicated Videobox render container. The
+  // endpoint is async + poll-based so
   // we get a live progress bar instead of waiting on one long HTTP
   // request (which used to time out at nginx and made the UX opaque):
   //   1. POST /api/render    → { id }
@@ -862,12 +868,16 @@ export default function Editor() {
     setServerRenderError(null);
     setServerRenderStatus("queued");
     setServerRenderProgress(0);
+    setServerRenderEtaMs(null);
     try {
       // 1. enqueue
       const startRes = await fetch(renderApiUrl(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mode === "integral" ? props : { props, mode }),
+        // The resolution selector applies to server renders too. Previously
+        // the UI defaulted to 720p while this path silently rendered every
+        // job at 1080x1920, doing 2.25x as much pixel work as requested.
+        body: JSON.stringify({ props, mode, resolution: exportRes }),
       });
       if (!startRes.ok) {
         const text = await startRes.text().catch(() => "");
@@ -889,6 +899,7 @@ export default function Editor() {
           progress: number;
           error: string | null;
           outputName?: string;
+          estimatedRemainingMs?: number | null;
         };
         try {
           const sRes = await fetch(renderApiUrl(`${id}/status`));
@@ -910,6 +921,9 @@ export default function Editor() {
         }
         setServerRenderStatus(s.status);
         setServerRenderProgress(s.progress);
+        setServerRenderEtaMs(
+          typeof s.estimatedRemainingMs === "number" ? s.estimatedRemainingMs : null,
+        );
         if (s.outputName) outputName = s.outputName;
         if (s.status === "done") break;
         if (s.status === "cancelled") {
@@ -960,7 +974,7 @@ export default function Editor() {
       setServerRenderCancelling(false);
       serverRenderJobIdRef.current = null;
     }
-  }, [props, serverRendering]);
+  }, [props, serverRendering, exportRes]);
 
   // Stop button → fires POST /render/:id/cancel. The poll loop above sees
   // status="cancelled" on its next tick and exits cleanly through the
@@ -2506,6 +2520,10 @@ export default function Editor() {
               const isActive = serverRendering;
               const activeMode = serverRenderMode;
               const baseLabel = target === "scenes" ? "Render Scenes" : "Render Full Video";
+              const etaSeconds = serverRenderEtaMs == null ? null : Math.max(0, Math.ceil(serverRenderEtaMs / 1000));
+              const etaLabel = etaSeconds == null
+                ? ""
+                : ` · ~${Math.floor(etaSeconds / 60)}:${String(etaSeconds % 60).padStart(2, "0")} left`;
               // Segment style helper for the switch.
               const segStyle = (selected: boolean): React.CSSProperties => ({
                 flex: 1,
@@ -2590,12 +2608,13 @@ export default function Editor() {
                       {!isActive && baseLabel}
                       {isActive && serverRenderStatus === "queued" && "Queued…"}
                       {isActive && serverRenderStatus === "bundling" && "Bundling…"}
+                      {isActive && serverRenderStatus === "caching" && "Caching assets…"}
                       {isActive && serverRenderStatus === "selecting" && "Launching browser…"}
                       {isActive && serverRenderStatus === "rendering" &&
-                        `Rendering ${activeMode === "scenes" ? "scenes " : ""}${Math.round(serverRenderProgress * 100)}%`}
+                        `Rendering ${activeMode === "scenes" ? "scenes " : ""}${Math.round(serverRenderProgress * 100)}%${etaLabel}`}
                       {isActive && serverRenderStatus === "packing" && "Packing zip…"}
                       {isActive && serverRenderStatus === "done" && "Downloading…"}
-                      {isActive && !["queued", "bundling", "selecting", "rendering", "packing", "done"].includes(serverRenderStatus) &&
+                      {isActive && !["queued", "bundling", "caching", "selecting", "rendering", "packing", "done"].includes(serverRenderStatus) &&
                         "Rendering on server…"}
                     </span>
                   </button>
@@ -2849,7 +2868,8 @@ export default function Editor() {
                   }
                 >
                   <option value="none">None</option>
-                  <option value="Grunge.mp4">Grunge</option>
+                  <option value="Grunge-h264.mp4">Grunge</option>
+                  <option value="Grunge.mp4">Grunge (legacy HEVC)</option>
                   <option value="rough.mp4">Paint</option>
                 </select>
               </label>
@@ -3535,7 +3555,7 @@ export default function Editor() {
               </button>
             </div>
             <div className="dock-body-no-scrollbar" style={styles.dockBody}>
-              {Object.entries(categories).map(([category, layouts]) => (
+              {categoryEntries.map(([category, layouts]) => (
                 <div key={category}>
                   <h3 style={styles.categoryHeading}>{category}</h3>
                   <div style={styles.galleryGrid}>

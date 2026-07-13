@@ -6,15 +6,10 @@ import {
   spring,
   interpolate,
   Sequence,
-  Loop,
   Img,
-  // OffthreadVideo decodes via ffmpeg out of band — required for HEVC/H.265
-  // assets like Cube.mp4 in server-side renders (Chrome Headless Shell only
-  // ships H.264). It also falls back to plain <video> in @remotion/player so
-  // the editor preview behaves identically.
-  OffthreadVideo as Video,
   Audio,
 } from "remotion";
+import { Video as MediaVideo } from "@remotion/media";
 import type { VideoProps, Scene } from "./types";
 import { getSceneFrames } from "./types";
 import { LottieTransition, getTransitionProfile } from "./LottieTransition";
@@ -41,12 +36,19 @@ export const getLayoutControls = (index: number): CustomControl[] =>
  * String labels are preferred in stored presets because they survive template reordering.
  */
 export const resolveLayoutIndex = (layout: number | string | undefined, fallback: number): number => {
-  if (typeof layout === "number") return layout;
+  const safeFallback = Number.isSafeInteger(fallback) && fallback >= 0
+    ? fallback % SCENE_LAYOUTS.length
+    : 0;
+  if (typeof layout === "number") {
+    return Number.isSafeInteger(layout) && layout >= 0 && layout < SCENE_LAYOUTS.length
+      ? layout
+      : safeFallback;
+  }
   if (typeof layout === "string") {
     const idx = SCENE_LAYOUTS.findIndex((l) => l.label === layout);
-    return idx >= 0 ? idx : fallback;
+    return idx >= 0 ? idx : safeFallback;
   }
-  return fallback;
+  return safeFallback;
 };
 
 export const getLayoutLabel = (index: number): string | undefined => SCENE_LAYOUTS[index]?.label;
@@ -421,18 +423,12 @@ const BattleWaveform: React.FC<{ centerY: number; color: string; glowColor: stri
 const BOTW_OVERLAY = assetUrl("botw.webm");
 
 const BotwVideo: React.FC = () => {
-  const [exists, setExists] = React.useState<boolean | null>(null);
-  React.useEffect(() => {
-    fetch(BOTW_OVERLAY, { method: "HEAD" })
-      .then((r) => setExists(r.ok))
-      .catch(() => setExists(false));
-  }, []);
-  if (!exists) return null;
   return (
     <AbsoluteFill style={{ zIndex: 20 }}>
-      <Video
+      <MediaVideo
         src={BOTW_OVERLAY}
-        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        objectFit="cover"
+        style={{ width: "100%", height: "100%" }}
       />
     </AbsoluteFill>
   );
@@ -1451,9 +1447,9 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; index: number; layo
   colors,
   fontConfig,
   secondaryFontConfig,
-  fontSize = 150,
-  y: yOffset = 0,
-  x: xOffset = 0,
+  fontSize,
+  y: yOffset,
+  x: xOffset,
   rotateZ: rZ,
   rotateX: rX,
   perspective: persp,
@@ -1477,8 +1473,8 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; index: number; layo
     backgroundVideo.src = resolvedLayout.backgroundVideo.src;
   }
   const resolvedFontSize = fontSize ?? td?.fontSize ?? 150;
-  const resolvedX = xOffset || td?.x || 0;
-  const resolvedY = yOffset || td?.y || 0;
+  const resolvedX = xOffset ?? td?.x ?? 0;
+  const resolvedY = yOffset ?? td?.y ?? 0;
 
   // Delay text entrance if belt stomp is present (wait for belt to land)
   const textDelay = resolvedLayout.beltStomp ? (resolvedLayout.spotlight ? fps + 25 : 25) : 0;
@@ -1560,52 +1556,29 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; index: number; layo
             alignItems: resolvedLayout.videoFit === "contain" ? "center" : undefined,
           }}
         >
-          {resolvedLayout.loopVideo ? (
-            <video
-              src={assetUrl(backgroundVideo.src)}
-              autoPlay
-              loop
-              muted
-              playsInline
-              style={
-                resolvedLayout.videoFit === "contain"
-                  ? {
-                      height: "100%",
-                      width: "auto",
-                      transform: `scale(${backgroundVideo.scale ?? 1})`,
-                    }
-                  : {
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                      transform: `scale(${backgroundVideo.scale ?? 1})`,
-                    }
-              }
-            />
-          ) : (
-            <Video
-              src={assetUrl(backgroundVideo.src)}
-              muted={backgroundVideo.muted !== false}
-              volume={resolvedLayout.battleOverlay
-                ? interpolate(frame, [0, fps * 2], [0, 1], { extrapolateRight: "clamp" })
-                : 1}
-              startFrom={backgroundVideo.startFrom ?? 0}
-              style={
-                resolvedLayout.videoFit === "contain"
-                  ? {
-                      height: "100%",
-                      width: "auto",
-                      transform: `scale(${backgroundVideo.scale ?? 1})`,
-                    }
-                  : {
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                      transform: `scale(${backgroundVideo.scale ?? 1})`,
-                    }
-              }
-            />
-          )}
+          <MediaVideo
+            src={assetUrl(backgroundVideo.src)}
+            objectFit={resolvedLayout.videoFit === "contain" ? "contain" : "cover"}
+            loop={resolvedLayout.loopVideo}
+            muted={backgroundVideo.muted !== false}
+            volume={resolvedLayout.battleOverlay
+              ? interpolate(frame, [0, fps * 2], [0, 1], { extrapolateRight: "clamp" })
+              : 1}
+            trimBefore={backgroundVideo.startFrom ?? 0}
+            style={
+              resolvedLayout.videoFit === "contain"
+                ? {
+                    height: "100%",
+                    width: "auto",
+                    transform: `scale(${backgroundVideo.scale ?? 1})`,
+                  }
+                : {
+                    width: "100%",
+                    height: "100%",
+                    transform: `scale(${backgroundVideo.scale ?? 1})`,
+                  }
+            }
+          />
           {backgroundVideo.blendMode === "normal" && (
             <div style={{
               position: "absolute",
@@ -2103,7 +2076,7 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; index: number; layo
                         // 50pt smaller than the main caption text, but still
                         // tracks the scene's fontSize input since it's
                         // computed FROM resolvedFontSize, not a literal.
-                        fontSize: resolvedFontSize - 50,
+                        fontSize: Math.max(10, resolvedFontSize - 50),
                         fontFamily: subFont.fontFamily,
                         fontWeight: subFont.fontWeight ?? 700,
                         fontStyle: subFont.fontStyle ?? "normal",
@@ -2351,7 +2324,7 @@ const PrizesCard: React.FC<{ colorScheme: VideoProps["colorScheme"]; sceneDurati
   );
 };
 
-const TitleCard: React.FC<{ colorScheme: VideoProps["colorScheme"]; layoutIndex: number; fontConfig: FontConfig; text?: string; fontSize?: number }> = ({ colorScheme, layoutIndex, fontConfig, text, fontSize = 100 }) => {
+const TitleCard: React.FC<{ colorScheme: VideoProps["colorScheme"]; layoutIndex: number; fontConfig: FontConfig; text?: string; fontSize?: number; sceneDuration?: number }> = ({ colorScheme, layoutIndex, fontConfig, text, fontSize = 100, sceneDuration = SCENE_DURATION }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const resolvedLayout = SCENE_LAYOUTS[layoutIndex % SCENE_LAYOUTS.length];
@@ -2370,10 +2343,10 @@ const TitleCard: React.FC<{ colorScheme: VideoProps["colorScheme"]; layoutIndex:
         background: pan ? "#000000" : gradient,
       }}
     >
-      {pan && <ArenaPanLayer src={pan.src} direction={pan.direction} />}
+      {pan && <ArenaPanLayer src={pan.src} direction={pan.direction} sceneDuration={sceneDuration} />}
       {pan && <AbsoluteFill style={{ background: gradient, opacity: 0.6 }} />}
 
-      <CharacterLayer layoutIndex={layoutIndex} darkColor={colorScheme.dark} />
+      <CharacterLayer layoutIndex={layoutIndex} darkColor={colorScheme.dark} sceneDuration={sceneDuration} />
 
       {/* Explosion burst on logo impact */}
       {(() => {
@@ -2498,6 +2471,21 @@ const TitleCard: React.FC<{ colorScheme: VideoProps["colorScheme"]; layoutIndex:
 // data model. The shape is intentionally loose so the editor's <Player>
 // preview (which doesn't ship this prop) still typechecks.
 type HelloWorldProps = VideoProps & { transitions?: Record<string, unknown> };
+
+const GlobalVideoOverlay: React.FC<{ src: string }> = ({ src }) => {
+  return (
+    <AbsoluteFill style={{ mixBlendMode: "screen", zIndex: 100, pointerEvents: "none" }}>
+      <MediaVideo
+        src={assetUrl(src)}
+        objectFit="cover"
+        loop
+        muted
+        style={{ width: "100%", height: "100%" }}
+      />
+    </AbsoluteFill>
+  );
+};
+
 export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, music = "Tournament.mp3", transition = "flash.json", font = "Dela Gothic One", secondaryFont, overlayVideo = "none", transitions }) => {
   const fontConfig = FONT_MAP[font] || FONT_MAP["Dela Gothic One"];
   // Falls back to the primary font when unset — currently used for the
@@ -2520,16 +2508,7 @@ export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, mus
 
       {/* Global screen-blended video overlay across entire composition */}
       {overlayVideo && overlayVideo !== "none" && (
-        <AbsoluteFill style={{ mixBlendMode: "screen", zIndex: 100, pointerEvents: "none" as const }}>
-          <video
-            src={assetUrl(overlayVideo)}
-            autoPlay
-            loop
-            muted
-            playsInline
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
-        </AbsoluteFill>
+        <GlobalVideoOverlay src={overlayVideo} />
       )}
 
       {/* Scene cards with Lottie transitions overlaid at scene start */}
@@ -2568,7 +2547,7 @@ export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, mus
               {sceneLayout.prizesGrid ? (
                 <PrizesCard colorScheme={colorScheme} sceneDuration={sceneFrames} text={scene.text} />
               ) : sceneLayout.titleCard ? (
-                <TitleCard colorScheme={colorScheme} fontConfig={fontConfig} layoutIndex={sceneLayoutIndex} text={scene.text} fontSize={scene.fontSize} />
+                <TitleCard colorScheme={colorScheme} fontConfig={fontConfig} layoutIndex={sceneLayoutIndex} text={scene.text} fontSize={scene.fontSize} sceneDuration={sceneFrames} />
               ) : (
                 <SceneCard text={scene.text} subtitle={scene.subtitle} index={i} layoutIndex={sceneLayoutIndex} colors={colorScheme} fontConfig={fontConfig} secondaryFontConfig={secondaryFontConfig} fontSize={scene.fontSize} y={scene.y} x={scene.x} rotateZ={scene.rotateZ} rotateX={scene.rotateX} perspective={scene.perspective} backgroundVideo={scene.backgroundVideo} sceneDuration={sceneFrames} overlayVideo={overlayVideo} portrait={scene.portrait} />
               )}

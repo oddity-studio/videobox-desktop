@@ -1,4 +1,4 @@
-import { AbsoluteFill, Video, useCurrentFrame } from "remotion";
+import { AbsoluteFill, Video, cancelRender, continueRender, delayRender, useCurrentFrame } from "remotion";
 import { Lottie } from "@remotion/lottie";
 import type { LottieAnimationData } from "@remotion/lottie";
 import { assetUrl } from "./config";
@@ -55,11 +55,16 @@ function preloadTransition(url: string): Promise<LottieAnimationData> {
   let p = pending.get(url);
   if (!p) {
     p = fetch(url)
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`transition fetch failed: HTTP ${res.status}`);
+        return res.json();
+      })
       .then((data: LottieAnimationData) => {
         cache.set(url, data);
-        pending.delete(url);
         return data;
+      })
+      .finally(() => {
+        pending.delete(url);
       });
     pending.set(url, p);
   }
@@ -108,7 +113,28 @@ const Transition: React.FC<{ src?: string; data?: LottieAnimationData }> = ({ sr
       return;
     }
     setAnimationData(null);
-    preloadTransition(filePath).then((data) => setAnimationData(data));
+    const renderHandle = delayRender(`Loading transition ${filePath}`);
+    let cancelled = false;
+    let settled = false;
+    preloadTransition(filePath)
+      .then((data) => {
+        if (settled) return;
+        if (!cancelled) setAnimationData(data);
+        settled = true;
+        continueRender(renderHandle);
+      })
+      .catch((err) => {
+        if (settled) return;
+        settled = true;
+        cancelRender(err);
+      });
+    return () => {
+      cancelled = true;
+      if (!settled) {
+        settled = true;
+        continueRender(renderHandle);
+      }
+    };
   }, [filePath, isVideo, preloaded]);
 
   if (isVideo) {

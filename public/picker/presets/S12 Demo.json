@@ -3,7 +3,7 @@
   "music": "Tournament.mp3",
   "transition": "flash.json",
   "font": "Dela Gothic One",
-  "overlayVideo": "Grunge.mp4",
+  "overlayVideo": "Grunge-h264.mp4",
   "colorScheme": {
     "dark": "#953f0c",
     "light": "#dfbf67",

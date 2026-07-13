@@ -43,20 +43,11 @@ import Outro from "./Outro";
 import Prizes from "./Prizes";
 import Top10 from "./Top10";
 
-// Category headings in the picker render in first-seen order across this
-// array (see Editor.tsx's `categories` reduce). Season 13 entries must stay
-// ahead of any other category's first entry to keep "Season 13" on top.
+// Preserve the original entries at their historical numeric indexes. Saved
+// presets may still contain a numeric `layout`, so inserting new templates in
+// front would silently remap old projects to the wrong scene. New templates
+// are appended and the editor orders category headings independently.
 export const SCENE_LAYOUTS: SceneLayout[] = [
-  S13Logo,
-  S13Cover,
-  S13Scene2, // Head On
-  S13Scene3, // Left Align
-  S13Scene1, // Caption 1
-  S13Scene5, // Caption 2
-  S13Scene7, // Caption 3
-  S13Scene8, // Caption 4
-  S13Scene4, // Scroll
-  S13Scene6, // Marquee
   S12Scene1,
   S12Scene2,
   S12Scene3,
@@ -89,4 +80,14 @@ export const SCENE_LAYOUTS: SceneLayout[] = [
   Outro,
   Prizes,
   Top10,
+  S13Logo,
+  S13Cover,
+  S13Scene2, // Head On
+  S13Scene3, // Left Align
+  S13Scene1, // Caption 1
+  S13Scene5, // Caption 2
+  S13Scene7, // Caption 3
+  S13Scene8, // Caption 4
+  S13Scene4, // Scroll
+  S13Scene6, // Marquee
 ];

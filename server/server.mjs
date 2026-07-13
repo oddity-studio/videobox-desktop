@@ -40,6 +40,8 @@ import fs from "node:fs";
 import os from "node:os";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { bundle } from "@remotion/bundler";
 import {
     renderMedia,
@@ -77,6 +79,41 @@ const FEED_BASE_URL = process.env.NEXT_PUBLIC_FEED_BASE_URL || "/audeobox-feeds"
 // higher) for roughly linear speedup. Capped at 8 to avoid silly values.
 const RENDER_CONCURRENCY = Math.max(1, Math.min(8,
     Number.parseInt(process.env.RENDER_CONCURRENCY || "", 10) || 1));
+
+// Keep everyNthFrame at 1 for normal MP4 exports. Remotion uses the reduced
+// output FPS when building its audio filter graph, so sampling every second
+// visual frame also doubles frame-based audio cue offsets (for example, a 5 s
+// scene-music offset becomes 10 s). The knob remains available for deliberately
+// muted diagnostics, but production defaults must preserve A/V sync.
+const RENDER_EVERY_NTH_FRAME = Math.max(1, Math.min(4,
+    Number.parseInt(process.env.RENDER_EVERY_NTH_FRAME || "", 10) || 1));
+
+// libx264 defaults to "medium", which spends CPU on compression efficiency
+// that is not useful for these short social exports. "veryfast" preserves the
+// existing CRF/visual-quality target while trading a modest file-size increase
+// for substantially less encoder CPU. Validate at startup so a typo cannot
+// surface only after a long render has already started.
+const X264_PRESETS = new Set([
+    "ultrafast", "superfast", "veryfast", "faster", "fast",
+    "medium", "slow", "slower", "veryslow", "placebo",
+]);
+const RENDER_X264_PRESET = process.env.RENDER_X264_PRESET || "veryfast";
+if (!X264_PRESETS.has(RENDER_X264_PRESET)) {
+    throw new Error(`invalid RENDER_X264_PRESET: ${RENDER_X264_PRESET}`);
+}
+
+// Remotion otherwise gives OffthreadVideo half of all available memory for
+// decoded-frame caching. In a 6 GB container that left too little headroom to
+// safely test a second Chromium tab. 512 MiB is enough for forward playback
+// and short loop assets without letting an optional cache consume the cgroup.
+const RENDER_OFFTHREAD_VIDEO_CACHE_MB = Math.max(128, Math.min(4096,
+    Number.parseInt(process.env.RENDER_OFFTHREAD_VIDEO_CACHE_MB || "", 10) || 512));
+const RENDER_OFFTHREAD_VIDEO_CACHE_BYTES = RENDER_OFFTHREAD_VIDEO_CACHE_MB * 1024 * 1024;
+const RENDER_OFFTHREAD_VIDEO_THREADS = Math.max(1, Math.min(8,
+    Number.parseInt(process.env.RENDER_OFFTHREAD_VIDEO_THREADS || "", 10) || 2));
+const RENDER_MEDIA_CACHE_MB = Math.max(128, Math.min(4096,
+    Number.parseInt(process.env.RENDER_MEDIA_CACHE_MB || "", 10) || 512));
+const RENDER_MEDIA_CACHE_BYTES = RENDER_MEDIA_CACHE_MB * 1024 * 1024;
 
 // On-disk cache for CDN assets. Lives for the container's lifetime; warmed
 // per-render before renderMedia starts so all asset requests from inside
@@ -117,18 +154,28 @@ const TRANSITIONS_PRELOAD = await loadTransitionPreloads();
 // Singleflight downloader: concurrent requests for the same path collapse
 // into one upstream fetch. Returns the absolute path on disk when ready.
 const inflightDownloads = new Map();
-function cachePathFor(relPath) {
-    // Mirror the upstream layout so the file structure is human-readable
-    // and easy to spot-check. relPath is the slash-joined trailing portion
-    // of the CDN URL (e.g. "picker/music/Tournament.mp3").
-    const safe = relPath.split("/").map(encodeURIComponent).join("/");
-    return { decoded: path.join(ASSET_CACHE_DIR, relPath), safeRel: safe };
+function normalizeAssetPath(relPath) {
+    if (typeof relPath !== "string") throw new Error("asset path must be a string");
+    const clean = relPath.replace(/^\/+/, "").split("?")[0];
+    if (!clean) throw new Error("empty asset path");
+    if (clean.includes("\0") || clean.includes("\\")) throw new Error("invalid asset path");
+    const segments = clean.split("/");
+    if (segments.some((segment) => !segment || segment === "." || segment === "..")) {
+        throw new Error("invalid asset path");
+    }
+    const normalized = path.posix.normalize(clean);
+    const filePath = path.resolve(ASSET_CACHE_DIR, ...normalized.split("/"));
+    const cacheRoot = `${path.resolve(ASSET_CACHE_DIR)}${path.sep}`;
+    if (!filePath.startsWith(cacheRoot)) throw new Error("asset path escapes cache root");
+    return { clean: normalized, filePath };
 }
 function ensureCached(relPath) {
-    // Strip any leading slash and any querystring before caching.
-    const clean = relPath.replace(/^\/+/, "").split("?")[0];
-    if (!clean) return Promise.reject(new Error("empty asset path"));
-    const { decoded: filePath } = cachePathFor(clean);
+    let clean, filePath;
+    try {
+        ({ clean, filePath } = normalizeAssetPath(relPath));
+    } catch (err) {
+        return Promise.reject(err);
+    }
     if (fs.existsSync(filePath) && fs.statSync(filePath).size > 0) {
         return Promise.resolve(filePath);
     }
@@ -139,15 +186,15 @@ function ensureCached(relPath) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     const p = (async () => {
         const t0 = Date.now();
-        const res = await fetch(url);
+        const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
         if (!res.ok) {
             throw new Error(`upstream ${res.status} ${res.statusText} for ${clean}`);
         }
-        const ab = await res.arrayBuffer();
-        fs.writeFileSync(tmp, Buffer.from(ab));
+        if (!res.body) throw new Error(`upstream returned no body for ${clean}`);
+        await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(tmp, { flags: "wx" }));
         fs.renameSync(tmp, filePath);
         const ms = Date.now() - t0;
-        const kb = Math.round(ab.byteLength / 1024);
+        const kb = Math.round(fs.statSync(filePath).size / 1024);
         console.log(`[videobox-render] cached ${clean} (${kb} KB in ${ms} ms)`);
         return filePath;
     })().finally(() => {
@@ -159,11 +206,43 @@ function ensureCached(relPath) {
     return p;
 }
 
-// Walk inputProps and emit every relative asset path the render is going
-// to need. Mirrors how HelloWorld.tsx + sceneUtils.ts build URLs from the
-// props. We only enumerate user-driven choices — anything statically
-// referenced by scene layouts (firedash.webp, Audeobox_text.png, etc.)
-// will be lazy-cached on first miss via /cache/*.
+const STATIC_LAYOUT_ASSETS = new Map([
+    ["Video Cube", ["Cube-h264.mp4"]], ["3", ["Cube-h264.mp4"]],
+    ["My Video", ["Cube-h264.mp4"]], ["4", ["Cube-h264.mp4"]],
+    ["BotWeek1", ["Cube-h264.mp4", "botw.webm"]], ["5", ["Cube-h264.mp4", "botw.webm"]],
+    ["BotWeek2", ["Cube-h264.mp4", "botw.webm"]], ["6", ["Cube-h264.mp4", "botw.webm"]],
+    ["Weekly Stats 1", ["picker/music/Weekly.mp3"]], ["8", ["picker/music/Weekly.mp3"]],
+    ["Weekly Stats 2", ["picker/music/Weekly.mp3"]], ["9", ["picker/music/Weekly.mp3"]],
+    ["Weekly Title", ["title.webm"]], ["26", ["title.webm"]],
+    ["Killstreak", ["killstreak.webm"]], ["27", ["killstreak.webm"]],
+    ["King", ["king.webm"]], ["28", ["king.webm"]],
+    ["Outro", ["logo.webm"]], ["29", ["logo.webm"]],
+    ["Top10", ["picker/music/Weekly.mp3"]], ["31", ["picker/music/Weekly.mp3"]],
+    ["S13 Logo", ["s13-Arena.png", "s13-Hammer-alt.webp", "s13-Maxx.webp", "s13-Logo.webp"]],
+    ["32", ["s13-Arena.png", "s13-Hammer-alt.webp", "s13-Maxx.webp", "s13-Logo.webp"]],
+    ["S13 Cover", ["s13-Arena.png", "s13-Hammer-alt.webp", "s13-Maxx.webp"]],
+    ["33", ["s13-Arena.png", "s13-Hammer-alt.webp", "s13-Maxx.webp"]],
+    ["S13 Head On", ["s13-Arena.png", "s13-Glitch.webp"]],
+    ["34", ["s13-Arena.png", "s13-Glitch.webp"]],
+    ["S13 Left Align", ["s13-Arena.png", "s13-Data.webp"]],
+    ["35", ["s13-Arena.png", "s13-Data.webp"]],
+    ["S13 Caption 1", ["s13-Arena.png", "s13-Lyra.webp"]],
+    ["36", ["s13-Arena.png", "s13-Lyra.webp"]],
+    ["S13 Caption 2", ["s13-Arena.png", "s13-Cygnus.webp"]],
+    ["37", ["s13-Arena.png", "s13-Cygnus.webp"]],
+    ["S13 Caption 3", ["s13-Arena.png", "s13-Zeph.webp"]],
+    ["38", ["s13-Arena.png", "s13-Zeph.webp"]],
+    ["S13 Caption 4", ["s13-Arena.png", "s13-Haze.webp"]],
+    ["39", ["s13-Arena.png", "s13-Haze.webp"]],
+    ["S13 Scroll", ["s13-Arena.png", "s13-Pyron.webp"]],
+    ["40", ["s13-Arena.png", "s13-Pyron.webp"]],
+    ["S13 Marquee", ["s13-Arena.png", "s13-Nova.webp"]],
+    ["41", ["s13-Arena.png", "s13-Nova.webp"]],
+]);
+
+// Walk inputProps and emit every relative asset path the render is going to
+// need. Includes user selections plus known static dependencies of layouts so
+// the first frame of each scene does not block on a surprise CDN fetch.
 function collectAssetPaths(inputProps) {
     const out = new Set();
     if (!inputProps || typeof inputProps !== "object") return out;
@@ -197,6 +276,7 @@ function collectAssetPaths(inputProps) {
     const scenes = Array.isArray(inputProps.scenes) ? inputProps.scenes : [];
     for (const scene of scenes) {
         if (!scene || typeof scene !== "object") continue;
+        for (const asset of STATIC_LAYOUT_ASSETS.get(String(scene.layout)) || []) push(asset);
         if (scene.portrait) push(`picker/Portraits/${scene.portrait}`);
         const bg = scene.backgroundVideo;
         if (bg && typeof bg === "object" && typeof bg.src === "string") push(bg.src);
@@ -211,11 +291,22 @@ async function prewarmAssets(inputProps) {
         return;
     }
     const t0 = Date.now();
-    const results = await Promise.allSettled(paths.map((p) => ensureCached(p)));
-    const failed = results.filter((r) => r.status === "rejected");
+    const failures = [];
+    let nextIndex = 0;
+    const workerCount = Math.min(4, paths.length);
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+        while (nextIndex < paths.length) {
+            const asset = paths[nextIndex++];
+            try {
+                await ensureCached(asset);
+            } catch (err) {
+                failures.push(err);
+            }
+        }
+    }));
     const ms = Date.now() - t0;
-    if (failed.length) {
-        console.warn(`[videobox-render] prewarm: ${paths.length - failed.length}/${paths.length} ok in ${ms} ms — ${failed.length} failed: ${failed.map((f) => f.reason?.message || f.reason).join("; ")}`);
+    if (failures.length) {
+        console.warn(`[videobox-render] prewarm: ${paths.length - failures.length}/${paths.length} ok in ${ms} ms — ${failures.length} failed: ${failures.map((err) => err?.message || err).join("; ")}`);
     } else {
         console.log(`[videobox-render] prewarmed ${paths.length} assets in ${ms} ms`);
     }
@@ -348,6 +439,20 @@ function newJob() {
         cancelHooks: new Set(),
         lastClientSeenAt: Date.now(),
         lastWorkAt: Date.now(),
+        sourceFps: null,
+        outputFps: null,
+        sourceFrames: null,
+        framesToRender: null,
+        renderedFrames: 0,
+        encodedFrames: 0,
+        estimatedRemainingMs: null,
+        stitchStage: null,
+        renderedDoneInMs: null,
+        resolution: "1080p",
+        renderScale: 1,
+        outputWidth: null,
+        outputHeight: null,
+        slowestFrames: [],
     };
     jobs.set(id, record);
     return record;
@@ -371,11 +476,38 @@ function enqueue(task) {
     return renderQueue;
 }
 
+function countSampledFrames(startFrame, endFrame) {
+    if (endFrame < startFrame) return 0;
+    return Math.max(0,
+        Math.floor(endFrame / RENDER_EVERY_NTH_FRAME) -
+        Math.ceil(startFrame / RENDER_EVERY_NTH_FRAME) + 1);
+}
+
+function recordRenderMetrics(job, metrics, renderedFrameOffset = 0) {
+    job.renderedFrames = renderedFrameOffset + (metrics.renderedFrames || 0);
+    job.encodedFrames = renderedFrameOffset + (metrics.encodedFrames || 0);
+    job.estimatedRemainingMs = Number.isFinite(metrics.renderEstimatedTime)
+        ? metrics.renderEstimatedTime
+        : null;
+    job.stitchStage = metrics.stitchStage || null;
+    job.renderedDoneInMs = metrics.renderedDoneIn ?? null;
+}
+
+function renderTuningOptions() {
+    return {
+        everyNthFrame: RENDER_EVERY_NTH_FRAME,
+        x264Preset: RENDER_X264_PRESET,
+        offthreadVideoCacheSizeInBytes: RENDER_OFFTHREAD_VIDEO_CACHE_BYTES,
+        offthreadVideoThreads: RENDER_OFFTHREAD_VIDEO_THREADS,
+        mediaCacheSizeInBytes: RENDER_MEDIA_CACHE_BYTES,
+    };
+}
+
 // Helper: render the whole composition once. Updates job.progress 0..1.
 // cancelSignal lets POST /render/:id/cancel abort renderMedia mid-frame.
 async function renderFull({ job, serveUrl, composition, inputProps, outputLocation, cancelSignal }) {
     let lastLoggedPct = -1;
-    await renderMedia({
+    const result = await renderMedia({
         composition,
         serveUrl,
         codec: "h264",
@@ -383,21 +515,31 @@ async function renderFull({ job, serveUrl, composition, inputProps, outputLocati
         inputProps,
         browserExecutable: BROWSER_EXECUTABLE,
         chromiumOptions: { headless: true },
+        scale: job.renderScale,
         // Configurable via RENDER_CONCURRENCY env var. Default 1 because
         // resource-tight hosts (like a 2-core / 2 GB WSL VM) can't keep a
         // second Chromium tab alive — see project-render-hang-regression.
         concurrency: RENDER_CONCURRENCY,
         timeoutInMilliseconds: 120000,
         cancelSignal,
-        onProgress: ({ progress }) => {
-            updateJobProgress(job, progress);
-            const pct = Math.floor(progress * 100);
+        ...renderTuningOptions(),
+        onProgress: (metrics) => {
+            recordRenderMetrics(job, metrics);
+            updateJobProgress(job, metrics.progress);
+            const pct = Math.floor(metrics.progress * 100);
             if (pct !== lastLoggedPct && pct % 5 === 0) {
                 lastLoggedPct = pct;
-                console.log(`[videobox-render] ${job.id} ${pct}%`);
+                const eta = Number.isFinite(metrics.renderEstimatedTime)
+                    ? ` eta=${Math.ceil(metrics.renderEstimatedTime / 1000)}s`
+                    : "";
+                console.log(`[videobox-render] ${job.id} ${pct}% frames=${metrics.renderedFrames}/${job.framesToRender}${eta}`);
             }
         },
     });
+    job.slowestFrames = (result.slowestFrames || []).slice(0, 10);
+    if (job.slowestFrames.length) {
+        console.log(`[videobox-render] ${job.id} slowestFrames=${JSON.stringify(job.slowestFrames)}`);
+    }
 }
 
 // Helper: zip a directory's contents into outPath. Returns when the zip is
@@ -566,6 +708,20 @@ async function runRender(job, inputProps, mode) {
             throw new Error("inputProps.scenes must be a non-empty array");
         }
         composition.durationInFrames = totalFrames;
+        job.sourceFps = fps;
+        job.outputFps = fps / RENDER_EVERY_NTH_FRAME;
+        job.sourceFrames = totalFrames;
+        job.framesToRender = countSampledFrames(0, totalFrames - 1);
+        job.outputWidth = Math.round(composition.width * job.renderScale);
+        job.outputHeight = Math.round(composition.height * job.renderScale);
+        console.log(
+            `[videobox-render] ${job.id} composition=${composition.width}x${composition.height}` +
+            ` outputSize=${job.outputWidth}x${job.outputHeight}` +
+            ` duration=${(totalFrames / fps).toFixed(2)}s source=${totalFrames}@${fps}fps` +
+            ` output=${job.framesToRender}@${job.outputFps}fps concurrency=${RENDER_CONCURRENCY}` +
+            ` x264=${RENDER_X264_PRESET} mediaCache=${RENDER_MEDIA_CACHE_MB}MiB` +
+            ` offthreadCache=${RENDER_OFFTHREAD_VIDEO_CACHE_MB}MiB`
+        );
         markJobStage(job, "rendering");
 
         if (mode === "scenes") {
@@ -588,6 +744,7 @@ async function runRender(job, inputProps, mode) {
             const sceneDir = path.join(OUTPUT_DIR, `scenes-${job.id}`);
             fs.mkdirSync(sceneDir, { recursive: true });
             const totalScenes = scenes.length;
+            let renderedFrameOffset = 0;
 
             for (let i = 0; i < totalScenes; i++) {
                 if (job.cancelled) throw new Error("cancelled");
@@ -607,7 +764,7 @@ async function runRender(job, inputProps, mode) {
 
                 console.log(`[videobox-render] ${job.id} scene ${i + 1}/${totalScenes} frames=[${sceneStart}..${sceneEnd}] → ${path.basename(sceneFile)}`);
                 let lastLoggedPct = -1;
-                await renderMedia({
+                const sceneResult = await renderMedia({
                     composition,
                     serveUrl,
                     codec: "h264",
@@ -616,23 +773,33 @@ async function runRender(job, inputProps, mode) {
                     frameRange: [sceneStart, sceneEnd],
                     browserExecutable: BROWSER_EXECUTABLE,
                     chromiumOptions: { headless: true },
+                    scale: job.renderScale,
                     // Configurable — see note in renderFull().
                     concurrency: RENDER_CONCURRENCY,
                     timeoutInMilliseconds: 120000,
                     cancelSignal,
-                    onProgress: ({ progress }) => {
+                    ...renderTuningOptions(),
+                    onProgress: (metrics) => {
                         // Combine intra-scene progress with scenes-so-far so
                         // the bar in the editor advances smoothly over the
                         // entire batch instead of resetting per scene.
-                        const overall = (i + progress) / totalScenes;
+                        recordRenderMetrics(job, metrics, renderedFrameOffset);
+                        const overall = (i + metrics.progress) / totalScenes;
                         updateJobProgress(job, overall);
-                        const pct = Math.floor(progress * 100);
+                        const pct = Math.floor(metrics.progress * 100);
                         if (pct !== lastLoggedPct && pct % 25 === 0) {
                             lastLoggedPct = pct;
                             console.log(`[videobox-render] ${job.id} scene ${i + 1} ${pct}%`);
                         }
                     },
                 });
+                job.slowestFrames.push(...(sceneResult.slowestFrames || []).map((item) => ({
+                    ...item,
+                    scene: i + 1,
+                })));
+                job.slowestFrames.sort((a, b) => b.time - a.time);
+                job.slowestFrames = job.slowestFrames.slice(0, 10);
+                renderedFrameOffset += countSampledFrames(sceneStart, sceneEnd);
             }
 
             // Bundle everything into a single zip.
@@ -714,6 +881,67 @@ async function runRender(job, inputProps, mode) {
 const app = express();
 app.use(express.json({ limit: "8mb" }));
 
+function normalizeDirectAsset(value, fieldName) {
+    if (typeof value !== "string" || !value.trim()) return value;
+    const trimmed = value.trim();
+    if (trimmed.startsWith(`${UPSTREAM_CDN}/`)) {
+        return normalizeAssetPath(trimmed.slice(UPSTREAM_CDN.length + 1)).clean;
+    }
+    if (/^(blob:|data:)/i.test(trimmed)) {
+        throw new Error(`${fieldName} is browser-local and cannot be used by the render server; upload it first`);
+    }
+    if (/^https?:/i.test(trimmed)) {
+        throw new Error(`${fieldName} must use the configured Videobox CDN`);
+    }
+    return normalizeAssetPath(trimmed).clean;
+}
+
+function validateAndNormalizeInputProps(inputProps) {
+    if (!inputProps || typeof inputProps !== "object" || Array.isArray(inputProps)) {
+        throw new Error("props must be an object");
+    }
+    const normalized = { ...inputProps };
+    if (normalized.overlayVideo && normalized.overlayVideo !== "none") {
+        normalized.overlayVideo = normalizeDirectAsset(normalized.overlayVideo, "overlayVideo");
+    }
+    if (normalized.music && normalized.music !== "none") {
+        normalizeAssetPath(`picker/music/${normalized.music}`);
+    }
+    if (normalized.transition && normalized.transition !== "none") {
+        normalizeAssetPath(`picker/transitions/${normalized.transition}`);
+    }
+    normalized.scenes = getInputScenes(inputProps).map((scene, index) => {
+        if (!scene || typeof scene !== "object" || Array.isArray(scene)) {
+            throw new Error(`scenes[${index}] must be an object`);
+        }
+        if (typeof scene.text !== "string") {
+            throw new Error(`scenes[${index}].text must be a string`);
+        }
+        if (scene.layout !== undefined) {
+            const validStringLayout = typeof scene.layout === "string" && scene.layout.trim().length > 0;
+            const validNumericLayout = typeof scene.layout === "number" &&
+                Number.isSafeInteger(scene.layout) && scene.layout >= 0;
+            if (!validStringLayout && !validNumericLayout) {
+                throw new Error(`scenes[${index}].layout must be a non-empty name or non-negative integer`);
+            }
+        }
+        if (scene.duration !== undefined &&
+            (typeof scene.duration !== "number" || !Number.isFinite(scene.duration) || scene.duration <= 0)) {
+            throw new Error(`scenes[${index}].duration must be a positive finite number`);
+        }
+        const next = { ...scene };
+        if (next.portrait) normalizeAssetPath(`picker/Portraits/${next.portrait}`);
+        if (next.backgroundVideo?.src) {
+            next.backgroundVideo = {
+                ...next.backgroundVideo,
+                src: normalizeDirectAsset(next.backgroundVideo.src, `scenes[${index}].backgroundVideo.src`),
+            };
+        }
+        return next;
+    });
+    return normalized;
+}
+
 app.get("/health", (_req, res) => {
     const active = [...jobs.values()].filter((job) => !TERMINAL_JOB_STATUSES.has(job.status));
     const current = active.find((job) => job.status !== "queued") || null;
@@ -722,6 +950,11 @@ app.get("/health", (_req, res) => {
         activeJobs: active.length,
         queuedJobs: active.filter((job) => job.status === "queued").length,
         renderConcurrency: RENDER_CONCURRENCY,
+        everyNthFrame: RENDER_EVERY_NTH_FRAME,
+        x264Preset: RENDER_X264_PRESET,
+        offthreadVideoCacheMb: RENDER_OFFTHREAD_VIDEO_CACHE_MB,
+        offthreadVideoThreads: RENDER_OFFTHREAD_VIDEO_THREADS,
+        mediaCacheMb: RENDER_MEDIA_CACHE_MB,
         current: current ? {
             id: current.id,
             status: current.status,
@@ -729,6 +962,17 @@ app.get("/health", (_req, res) => {
             elapsedMs: current.startedAt ? Date.now() - current.startedAt : 0,
             workIdleMs: Date.now() - current.lastWorkAt,
             clientIdleMs: Date.now() - current.lastClientSeenAt,
+            sourceFps: current.sourceFps,
+            outputFps: current.outputFps,
+            sourceFrames: current.sourceFrames,
+            framesToRender: current.framesToRender,
+            renderedFrames: current.renderedFrames,
+            encodedFrames: current.encodedFrames,
+            estimatedRemainingMs: current.estimatedRemainingMs,
+            stitchStage: current.stitchStage,
+            resolution: current.resolution,
+            outputWidth: current.outputWidth,
+            outputHeight: current.outputHeight,
         } : null,
     });
 });
@@ -738,21 +982,22 @@ app.get("/health", (_req, res) => {
 // straight off this container's tmpfs. Pre-warmed by /render before
 // renderMedia starts; lazy-cached on miss for anything we didn't predict.
 app.get(/^\/cache\/(.+)$/, async (req, res) => {
-    const relPath = decodeURIComponent(req.params[0] || "");
-    if (!relPath || relPath.includes("..")) {
-        return res.status(400).send("bad path");
-    }
-    // The rendered bundle runs on a different loopback origin (localhost:3000)
-    // than this cache (localhost:${PORT}), so the tab's fetch() for transition
-    // JSON is cross-origin and Chromium blocks it without this header. Safe to
-    // open up: this server is reachable only from inside the render container.
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    let relPath = "";
     try {
+        relPath = decodeURIComponent(req.params[0] || "");
+        normalizeAssetPath(relPath);
+        // The rendered bundle runs on a different loopback origin
+        // (localhost:3000) than this cache (localhost:${PORT}), so Chromium
+        // needs CORS for transition JSON and media requests.
+        res.setHeader("Access-Control-Allow-Origin", "*");
         const filePath = await ensureCached(relPath);
         res.setHeader("Cache-Control", "public, max-age=3600");
         res.sendFile(filePath);
     } catch (err) {
         const msg = err?.message || String(err);
+        if (err instanceof URIError || /asset path|cache root/i.test(msg)) {
+            return res.status(400).send("bad path");
+        }
         console.warn(`[videobox-render] cache miss for ${relPath}: ${msg}`);
         res.status(502).send(`asset fetch failed: ${msg}`);
     }
@@ -763,13 +1008,21 @@ app.post("/render", (req, res) => {
     //   - bare videoProps               → mode "integral"
     //   - { props, mode: "scenes" }     → render scene by scene + zip
     const body = req.body || {};
-    let inputProps, mode;
+    let inputProps, mode, resolution;
     if (body && typeof body === "object" && body.props && typeof body.props === "object") {
         inputProps = body.props;
         mode = body.mode === "scenes" ? "scenes" : "integral";
+        resolution = body.resolution === "720p" ? "720p" : "1080p";
     } else {
         inputProps = body;
         mode = "integral";
+        // Backward-compatible behavior for legacy clients that send bare props.
+        resolution = "1080p";
+    }
+    try {
+        inputProps = validateAndNormalizeInputProps(inputProps);
+    } catch (err) {
+        return res.status(400).json({ ok: false, error: err?.message || String(err) });
     }
     if (!getInputScenes(inputProps).length) {
         return res.status(400).json({ ok: false, error: "props.scenes must be a non-empty array" });
@@ -796,10 +1049,12 @@ app.post("/render", (req, res) => {
         : DEFAULT_RENDER_TIMEOUT_MS;
     const job = newJob();
     job.mode = mode;
+    job.resolution = resolution;
+    job.renderScale = resolution === "720p" ? 2 / 3 : 1;
     job.timeoutMs = timeoutMs;
-    console.log(`[videobox-render] ${job.id} queued (mode=${mode}, transition=${selectedTransition || "none"}, timeout=${Math.round(timeoutMs / 1000)}s)`);
+    console.log(`[videobox-render] ${job.id} queued (mode=${mode}, resolution=${resolution}, transition=${selectedTransition || "none"}, timeout=${Math.round(timeoutMs / 1000)}s)`);
     enqueue(() => runRender(job, inputProps, mode));
-    res.json({ ok: true, id: job.id, mode, timeoutSec: Math.round(timeoutMs / 1000) });
+    res.json({ ok: true, id: job.id, mode, resolution, timeoutSec: Math.round(timeoutMs / 1000) });
 });
 
 app.get("/render/:id/status", (req, res) => {
@@ -817,6 +1072,19 @@ app.get("/render/:id/status", (req, res) => {
         error: job.error,
         outputName: job.outputName,
         timedOut: Boolean(job.timedOut),
+        sourceFps: job.sourceFps,
+        outputFps: job.outputFps,
+        sourceFrames: job.sourceFrames,
+        framesToRender: job.framesToRender,
+        renderedFrames: job.renderedFrames,
+        encodedFrames: job.encodedFrames,
+        estimatedRemainingMs: job.estimatedRemainingMs,
+        stitchStage: job.stitchStage,
+        renderedDoneInMs: job.renderedDoneInMs,
+        slowestFrames: TERMINAL_JOB_STATUSES.has(job.status) ? job.slowestFrames : undefined,
+        resolution: job.resolution,
+        outputWidth: job.outputWidth,
+        outputHeight: job.outputHeight,
     };
     if (job.startedAt) payload.elapsedMs = (job.finishedAt || Date.now()) - job.startedAt;
     res.json(payload);
@@ -855,6 +1123,20 @@ app.get("/render/:id/file", (req, res) => {
         fs.unlink(job.outputPath, () => {});
         job.outputPath = null;
     });
+});
+
+// Express decodes route parameters before invoking a route handler. Malformed
+// percent escapes therefore bypass the cache route's own try/catch. Keep those
+// and malformed JSON bodies as small JSON 400s instead of leaking an HTML stack
+// trace (especially useful when the server is run locally outside NODE_ENV=production).
+app.use((err, _req, res, next) => {
+    if (err instanceof URIError) {
+        return res.status(400).json({ ok: false, error: "malformed URL encoding" });
+    }
+    if (err instanceof SyntaxError && err?.status === 400 && "body" in err) {
+        return res.status(400).json({ ok: false, error: "invalid JSON body" });
+    }
+    next(err);
 });
 
 // Cancel work whose editor disappeared. The normal editor polls every 2s;
