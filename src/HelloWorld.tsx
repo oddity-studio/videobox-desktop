@@ -91,6 +91,8 @@ export const isSubtitleEnabledLayout = (index: number): boolean =>
   SCENE_LAYOUTS[index]?.subtitleEnabled === true;
 export const isHexRippleLayout = (index: number): boolean =>
   SCENE_LAYOUTS[index]?.hexRipple === true;
+export const isMultilineTextLayout = (index: number): boolean =>
+  SCENE_LAYOUTS[index]?.multilineText === true;
 export const getLayoutDefaultDuration = (index: number): number | undefined =>
   SCENE_LAYOUTS[index]?.defaultDuration;
 export const getLayoutDefaultFontSize = (index: number): number | undefined =>
@@ -937,7 +939,7 @@ const HexRippleOverlay: React.FC<{
               textTransform: "uppercase",
               textAlign: "center",
               opacity: text2Alpha,
-              filter: "drop-shadow(5px 6px 6px rgba(0,0,0,0.65))",
+              filter: "drop-shadow(9px 10px 3px rgba(0,0,0,0.95))",
               ...gradientTextFill,
             }}>{text2}</p>
           )}
@@ -954,7 +956,7 @@ const HexRippleOverlay: React.FC<{
               textTransform: "uppercase",
               textAlign: "center",
               opacity: text3Alpha,
-              filter: "drop-shadow(5px 6px 6px rgba(0,0,0,0.65))",
+              filter: "drop-shadow(7px 8px 3px rgba(0,0,0,0.95))",
               ...gradientTextFill,
             }}>{line}</p>
           ))}
@@ -2488,6 +2490,8 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; text2?: string; tex
                         // customStyle) is tuned separately and shouldn't
                         // drag this along with it.
                         textShadow: "5px 5px 2px rgba(0,0,0,0.85)",
+                        // Subtitle box accepts Enter — render the breaks.
+                        whiteSpace: "pre-line",
                       }}
                     >
                       {subtitle}
@@ -2537,7 +2541,10 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; text2?: string; tex
           );
         }
 
-        const words = text.split(" ");
+        // Explicit line breaks win: with \n in the text, each typed line is
+        // one animated unit (words stay together on their row). Without \n
+        // the classic one-word-per-row stack is unchanged.
+        const words = text.includes("\n") ? text.split("\n") : text.split(" ");
         const totalWords = words.length;
         const revealWindow = dur - 50;
         const lineHeight = resolvedFontSize * 1.1;

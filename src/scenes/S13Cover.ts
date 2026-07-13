@@ -3,6 +3,8 @@ import { S13_MAXX, S13_HAMMER, S13_ARENA } from "../sceneUtils";
 
 const layout: SceneLayout = {
   label: "S13 Cover",
+  // Title input accepts Enter — each line renders as its own row.
+  multilineText: true,
   category: "Season 13",
   // Hammer listed first / Maxx second: characters paint in array order, so
   // Maxx (listed last) renders in front of Hammer.

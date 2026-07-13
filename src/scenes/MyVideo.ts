@@ -3,6 +3,8 @@ import { CHAR1 } from "../sceneUtils";
 
 const layout: SceneLayout = {
   label: "My Video",
+  // Title input accepts Enter — each line renders as its own row.
+  multilineText: true,
   category: "General",
   characters: [
     { src: CHAR1, side: "right", scale: 1.3, bottomPct: 0, flip: true, offsetX: 80 },

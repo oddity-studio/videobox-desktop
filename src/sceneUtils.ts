@@ -243,6 +243,10 @@ export type SceneLayout = {
   battleOverlay?: boolean;
   battleSlide?: number;
   weeklyTitle?: boolean;
+  // Title input accepts Enter in the editor; each typed line renders as
+  // its own row in the word-stack text modes (normal/flat/scroll). Without
+  // \n in the text the classic one-word-per-row behavior is unchanged.
+  multilineText?: boolean;
   // Centered hexagon outline (highlight color) with a slow expanding
   // hexagonal ripple behind it — see HexRippleOverlay in HelloWorld.tsx.
   hexRipple?: boolean;

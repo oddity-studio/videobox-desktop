@@ -2,6 +2,8 @@ import type { SceneLayout } from "../sceneUtils";
 
 const layout: SceneLayout = {
   label: "Neon",
+  // Title input accepts Enter — each line renders as its own row.
+  multilineText: true,
   category: "Gradients",
   characters: [],
   textDefaults: { y: 200, fontSize: 200, mode: "flat" },

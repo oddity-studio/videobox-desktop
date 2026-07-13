@@ -7,7 +7,7 @@ import { Player, type PlayerRef, Thumbnail } from "@remotion/player";
 // Chrome / Firefox / Safari; no platform-specific quirks.
 import { OverlayScrollbarsComponent } from "overlayscrollbars-react";
 import "overlayscrollbars/overlayscrollbars.css";
-import { HelloWorld, LAYOUT_OPTIONS, FONT_OPTIONS, getLayoutControls, isBattleLayout, isWeeklyTitleLayout, isKillstreakOverlayLayout, isKingOverlayLayout, isSlideLinesOverlayLayout, isSlideLinesDuelLayout, isSlideLinesTourneyLayout, isSlideLinesFixedLayout, isTextBlockLayout, isPrizesGridLayout, isTop10Layout, isSubtitleEnabledLayout, isHexRippleLayout, PRIZE_LOGOS, getLayoutDefaultDuration, getLayoutDefaultFontSize, resolveLayoutIndex, getLayoutLabel, resolveBackgroundVideo, resolveSceneMusic } from "@/src/HelloWorld";
+import { HelloWorld, LAYOUT_OPTIONS, FONT_OPTIONS, getLayoutControls, isBattleLayout, isWeeklyTitleLayout, isKillstreakOverlayLayout, isKingOverlayLayout, isSlideLinesOverlayLayout, isSlideLinesDuelLayout, isSlideLinesTourneyLayout, isSlideLinesFixedLayout, isTextBlockLayout, isPrizesGridLayout, isTop10Layout, isSubtitleEnabledLayout, isHexRippleLayout, isMultilineTextLayout, PRIZE_LOGOS, getLayoutDefaultDuration, getLayoutDefaultFontSize, resolveLayoutIndex, getLayoutLabel, resolveBackgroundVideo, resolveSceneMusic } from "@/src/HelloWorld";
 import { defaultVideoProps, videoPropsSchema, FPS, DEFAULT_SCENE_DURATION, getSceneFrames, getTotalFrames } from "@/src/types";
 import type { VideoProps, Scene, ColorScheme } from "@/src/types";
 import { assetUrl, feedUrl, renderApiUrl } from "@/src/config";
@@ -2206,6 +2206,16 @@ export default function Editor() {
             </span>
           );
         })()
+      ) : isMultilineTextLayout(resolveLayoutIndex(scene.layout, i)) ? (
+        // Multiline title: Enter adds a row (rendered as its own line in
+        // the scene) and the box grows to fit.
+        <textarea
+          style={{ ...styles.sceneInput, resize: "none", fontFamily: "inherit", lineHeight: 1.5 }}
+          rows={Math.max(1, (scene.text || "").split("\n").length)}
+          value={scene.text}
+          onChange={(e) => updateScene(i, "text", e.target.value)}
+          placeholder={`Title ${i + 1}...`}
+        />
       ) : (
         <input
           style={styles.sceneInput}
@@ -2220,8 +2230,10 @@ export default function Editor() {
       {isSubtitleEnabledLayout(_layoutIdx) && (
         <>
           <span style={{ ...styles.sceneInputCaption, marginTop: 6 }}>Subtitle</span>
-          <input
-            style={styles.sceneInput}
+          {/* Multiline: Enter adds a row; renders with the line breaks. */}
+          <textarea
+            style={{ ...styles.sceneInput, resize: "none", fontFamily: "inherit", lineHeight: 1.5 }}
+            rows={Math.max(1, (scene.subtitle || "").split("\n").length)}
             value={scene.subtitle || ""}
             onChange={(e) => updateScene(i, "subtitle", e.target.value)}
             placeholder={`Subtitle ${i + 1}...`}

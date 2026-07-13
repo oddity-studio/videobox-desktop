@@ -3,6 +3,8 @@ import { CHAR3, CHAR2 } from "../sceneUtils";
 
 const layout: SceneLayout = {
   label: "S12 Scene5",
+  // Title input accepts Enter — each line renders as its own row.
+  multilineText: true,
   category: "Season 12",
   characters: [
     { src: CHAR3, side: "left", scale: 1.2, bottomPct: 0, opacity: 0.5, offsetX: -500 },

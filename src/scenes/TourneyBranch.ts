@@ -2,6 +2,8 @@ import type { SceneLayout } from "../sceneUtils";
 
 const layout: SceneLayout = {
   label: "Bracket",
+  // Title input accepts Enter — each line renders as its own row.
+  multilineText: true,
   category: "Tournament",
   characters: [],
   slideLinesOverlay: true,

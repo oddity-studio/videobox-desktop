@@ -3,6 +3,8 @@ import { BELT1 } from "../sceneUtils";
 
 const layout: SceneLayout = {
   label: "Belt Stomp",
+  // Title input accepts Enter — each line renders as its own row.
+  multilineText: true,
   category: "Tournament",
   characters: [],
   beltStomp: { src: BELT1 },
