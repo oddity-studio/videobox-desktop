@@ -11,12 +11,12 @@
   },
   "scenes": [
     { "text": "", "fontSize": 80, "layout": "S12 Logo" },
-    { "text": "New Season Starts Now", "fontSize": 150, "layout": "S12 Scene1" },
-    { "text": "Make Your Mark", "fontSize": 230, "layout": "S12 Scene2" },
-    { "text": "And Forge Your Legacy", "fontSize": 140, "layout": "Video Cube" },
-    { "text": "Using Our New Tools", "fontSize": 150, "layout": "S12 Scene3" },
-    { "text": "Sounds Packs Effects Tutorials Apps Plugins And More...", "fontSize": 150, "layout": "S12 Scene4" },
-    { "text": "Right Here Right Now", "fontSize": 150, "layout": "S12 Scene5" },
+    { "text": "New\nSeason\nStarts\nNow", "fontSize": 150, "layout": "S12 Scene1" },
+    { "text": "Make\nYour\nMark", "fontSize": 230, "layout": "S12 Scene2" },
+    { "text": "And Forge\nYour\nLegacy", "fontSize": 140, "layout": "Video Cube" },
+    { "text": "Using\nOur New\nTools", "fontSize": 150, "layout": "S12 Scene3" },
+    { "text": "Sounds Packs\nEffects\nTutorials\nApps\nPlugins\nAnd More...", "fontSize": 150, "layout": "S12 Scene4" },
+    { "text": "Right Here\nRight Now", "fontSize": 150, "layout": "S12 Scene5" },
     { "text": "", "fontSize": 80, "layout": "S12 Logo" }
   ]
 }

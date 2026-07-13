@@ -16,7 +16,7 @@
       "fontSize": 100
     },
     {
-      "text": "THE BRACKET'S ON FYRE",
+      "text": "THE BRACKET'S\nON FYRE",
       "layout": "Tourney",
       "fontSize": 166,
       "duration": 2
@@ -46,7 +46,7 @@
       "duration": 4
     },
     {
-      "text": "Insane prize pool by",
+      "text": "Insane\nprize\npool\nby",
       "layout": "S12 Scene1",
       "fontSize": 180
     },
@@ -58,7 +58,7 @@
     {
       "text": "THE BELT AWAITS",
       "layout": "Belt Stomp",
-      "fontSize": 200
+      "fontSize": 180
     },
     {
       "text": "VOTING STARTS MAY 3RD",

@@ -13,14 +13,10 @@
     {
       "text": "Apr 5th – Apr 12th",
       "text2": "150",
-      "text3": "WIN STREAK",
+      "text3": "WIN STREAK\nINSIDE",
       "layout": "Weekly Title 2",
-      "fontSize": 262,
-      "duration": 5,
-      "backgroundVideo": {
-        "src": "",
-        "muted": false
-      }
+      "fontSize": 230,
+      "duration": 6
     },
     {
       "text": "Player1|Player1|Player1\n786|454|121",

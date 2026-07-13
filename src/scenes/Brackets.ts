@@ -3,6 +3,8 @@ import { BRACKETS } from "../sceneUtils";
 
 const layout: SceneLayout = {
   label: "Tourney",
+  // Title input accepts Enter — each line renders as its own row.
+  multilineText: true,
   category: "Tournament",
   characters: [],
   backgroundImageSrc: BRACKETS,

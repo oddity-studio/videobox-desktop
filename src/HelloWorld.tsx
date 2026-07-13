@@ -1140,26 +1140,31 @@ const KingOverlay: React.FC<{ text: string; sceneDuration: number }> = ({ text, 
   );
 };
 
-// Polka-dot overlay — a tiling dot pattern slowly sliding diagonally, multiplied over the background
-const PolkaDotOverlay: React.FC = () => {
+// Polka-dot overlay — a tiling dot pattern slowly sliding diagonally.
+// Default: dark dots multiplied over the background (Weekly Stats look).
+// dotColor/blend override that — Weekly Title 2 passes a color slightly
+// brighter than its #130d38 background with normal blending.
+const PolkaDotOverlay: React.FC<{ dotColor?: string; blend?: React.CSSProperties["mixBlendMode"] }> = ({
+  dotColor = "rgba(0,0,0,0.375)",
+  blend = "multiply",
+}) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const PX_PER_SECOND = 15; // slow diagonal drift
   const offset = (frame / fps) * PX_PER_SECOND;
   // Two identical radial-gradient layers, one shifted half a tile → every other row offset by half
-  const DOT = "rgba(0,0,0,0.375)";
   const TILE = 36;
   const HALF = TILE / 2;
   const R = 4;
   const FADE = 5;
-  const gradient = `radial-gradient(circle at ${HALF}px ${HALF}px, ${DOT} ${R}px, transparent ${FADE}px)`;
+  const gradient = `radial-gradient(circle at ${HALF}px ${HALF}px, ${dotColor} ${R}px, transparent ${FADE}px)`;
   return (
     <AbsoluteFill
       style={{
         backgroundImage: `${gradient}, ${gradient}`,
         backgroundSize: `${TILE}px ${TILE}px, ${TILE}px ${TILE}px`,
         backgroundPosition: `${offset}px ${offset}px, ${offset + HALF}px ${offset + HALF}px`,
-        mixBlendMode: "multiply",
+        mixBlendMode: blend,
         pointerEvents: "none" as const,
       }}
     />
@@ -1980,8 +1985,13 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; text2?: string; tex
         />
       )}
 
-      {/* Polka-dot multiply overlay — sits over the gradient/grunge background */}
-      {resolvedLayout.polkaDotOverlay && <PolkaDotOverlay />}
+      {/* Polka-dot multiply overlay — sits over the gradient/grunge background.
+          Weekly Title 2 gets dots slightly brighter than its #130d38 bg. */}
+      {resolvedLayout.polkaDotOverlay && (
+        resolvedLayout.hexRipple
+          ? <PolkaDotOverlay dotColor="#231b55" blend="normal" />
+          : <PolkaDotOverlay />
+      )}
 
       {/* Sound waveform for scroll-mode scenes — behind characters. Uses
           highlight (not light) so it stays visible with mixBlendMode:

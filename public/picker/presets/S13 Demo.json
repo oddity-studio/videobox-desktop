@@ -22,12 +22,12 @@
       "subtitle": "STARTS NOW!"
     },
     {
-      "text": "Make Your Mark",
+      "text": "Make\nYour\nMark",
       "layout": "S13 Head On",
       "fontSize": 230
     },
     {
-      "text": "And Forge Your Legacy",
+      "text": "And\nForge\nYour\nLegacy",
       "layout": "S13 Left Align",
       "fontSize": 140
     },
@@ -38,7 +38,7 @@
       "duration": 4
     },
     {
-      "text": "Sounds Packs Effects Tutorials Apps Plugins And More...",
+      "text": "Sounds\nPacks\nEffects\nTutorials\nApps\nPlugins\nAnd More...",
       "layout": "S13 Scroll",
       "fontSize": 150
     },
@@ -46,7 +46,7 @@
       "text": "NEW FEATURES",
       "layout": "S13 Caption 3",
       "fontSize": 130,
-      "subtitle": "REIMAGINED BATTLE SYSTEM"
+      "subtitle": "REIMAGINED\nBATTLE SYSTEM"
     },
     {
       "text": "NEW FEATURES",
@@ -55,14 +55,14 @@
       "subtitle": "LEVEL-UP CHARACTERS"
     },
     {
-      "text": "BRAND NEW ARENA",
+      "text": "BRAND\nNEW\nARENA",
       "fontSize": 150,
       "layout": "S13 Cover",
       "subtitle": "asdasdas"
     },
     {
       "text": "AND INFINITE POSSIBILITIES",
-      "fontSize": 90,
+      "fontSize": 120,
       "layout": "S13 Caption 2"
     },
     {

@@ -16,7 +16,7 @@
       "fontSize": 80
     },
     {
-      "text": "Brackets are set",
+      "text": "Brackets\nare set",
       "layout": "Tourney",
       "fontSize": 130
     },
@@ -27,7 +27,7 @@
       "duration": 7
     },
     {
-      "text": "Who's taking the belt?",
+      "text": "Who's\ntaking\nthe belt?",
       "layout": "Belt Stomp",
       "fontSize": 140
     },
@@ -37,7 +37,7 @@
       "fontSize": 150
     },
     {
-      "text": "Record-breaking prize pool by",
+      "text": "Record-\nbreaking\nprize\npool\nby",
       "layout": "S12 Scene1",
       "fontSize": 140
     },
