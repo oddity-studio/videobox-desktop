@@ -941,8 +941,11 @@ const HexRippleOverlay: React.FC<{
               ...gradientTextFill,
             }}>{text2}</p>
           )}
-          {text3 && (
-            <p style={{
+          {/* text3 is multiline (Enter in the editor box) — one <p> per
+              line so the white→highlight gradient repeats on every row
+              instead of stretching across the whole block. */}
+          {text3 && text3.split("\n").map((line, li) => (
+            <p key={li} style={{
               fontFamily: (secondaryFontConfig ?? fontConfig).fontFamily,
               fontWeight: 700,
               fontSize: fontSize / 3,
@@ -953,8 +956,8 @@ const HexRippleOverlay: React.FC<{
               opacity: text3Alpha,
               filter: "drop-shadow(5px 6px 6px rgba(0,0,0,0.65))",
               ...gradientTextFill,
-            }}>{text3}</p>
-          )}
+            }}>{line}</p>
+          ))}
         </div>
       )}
     </AbsoluteFill>

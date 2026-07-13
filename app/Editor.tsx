@@ -2236,8 +2236,11 @@ export default function Editor() {
             placeholder="Big center line..."
           />
           <span style={{ ...styles.sceneInputCaption, marginTop: 6 }}>Center Text 2</span>
-          <input
-            style={styles.sceneInput}
+          {/* Multiline: Enter adds a row and the box grows to fit — each
+              line renders as its own row in the scene (HexRippleOverlay). */}
+          <textarea
+            style={{ ...styles.sceneInput, resize: "none", fontFamily: "inherit", lineHeight: 1.5 }}
+            rows={Math.max(1, (scene.text3 || "").split("\n").length)}
             value={scene.text3 || ""}
             onChange={(e) => updateScene(i, "text3", e.target.value)}
             placeholder="Small center line..."
