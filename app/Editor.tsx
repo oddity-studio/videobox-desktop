@@ -327,6 +327,24 @@ export default function Editor() {
   // handler each poll tick.
   const serverRenderJobIdRef = useRef<string | null>(null);
   const [serverRenderCancelling, setServerRenderCancelling] = useState(false);
+  // A server render is useful only while this editor is present to poll and
+  // download it. Best-effort cancellation on navigation prevents a closed tab
+  // from leaving Chromium/FFmpeg busy until the server-side timeout.
+  useEffect(() => {
+    const cancelActiveServerRender = () => {
+      const id = serverRenderJobIdRef.current;
+      if (!id) return;
+      void fetch(renderApiUrl(`${id}/cancel`), {
+        method: "POST",
+        keepalive: true,
+      }).catch(() => {});
+    };
+    window.addEventListener("pagehide", cancelActiveServerRender);
+    return () => {
+      window.removeEventListener("pagehide", cancelActiveServerRender);
+      cancelActiveServerRender();
+    };
+  }, []);
   // Mobile/vertical-screen tab navigation. On wide screens the three
   // sections (preset, scenes, preview) sit side-by-side; on narrow
   // viewports only the active tab is visible and a fixed bottom bar
@@ -858,19 +876,34 @@ export default function Editor() {
       // 2. poll for completion. 2 s feels responsive for a render that
       //    runs for minutes without being chatty on the network.
       let outputName = "videobox.mp4";
+      let consecutiveStatusFailures = 0;
       // eslint-disable-next-line no-constant-condition
       while (true) {
         await new Promise((r) => setTimeout(r, 2000));
-        const sRes = await fetch(renderApiUrl(`${id}/status`));
-        if (!sRes.ok) {
-          throw new Error(`Status check failed (HTTP ${sRes.status})`);
-        }
-        const s = await sRes.json() as {
+        let s: {
           status: string;
           progress: number;
           error: string | null;
           outputName?: string;
         };
+        try {
+          const sRes = await fetch(renderApiUrl(`${id}/status`));
+          if (!sRes.ok) {
+            throw new Error(`Status check failed (HTTP ${sRes.status})`);
+          }
+          s = await sRes.json();
+          consecutiveStatusFailures = 0;
+        } catch (err) {
+          consecutiveStatusFailures += 1;
+          if (consecutiveStatusFailures < 5) {
+            console.warn(
+              `[videobox] render status check ${consecutiveStatusFailures}/5 failed; retrying`,
+              err,
+            );
+            continue;
+          }
+          throw err;
+        }
         setServerRenderStatus(s.status);
         setServerRenderProgress(s.progress);
         if (s.outputName) outputName = s.outputName;
@@ -907,6 +940,10 @@ export default function Editor() {
       a.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
+      // Do not cancel on the first failed status/download request: a transient
+      // proxy or network blip should get the server-side lease grace period.
+      // If this client truly stopped polling, the renderer cancels the job
+      // after RENDER_CLIENT_LEASE_MS; pagehide still cancels immediately.
       const msg = err instanceof Error ? err.message : String(err);
       console.error("[videobox] server render failed", err);
       setServerRenderError(msg);

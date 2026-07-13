@@ -233,11 +233,28 @@ const JOB_TTL_MS = 60 * 60 * 1000;
 // Per-job hard timeout. If a render hangs past this it gets cancelled
 // automatically so the queue doesn't get stuck behind one wedged job.
 // Configurable per-request via `?timeout=<seconds>`; capped at the max.
-const DEFAULT_RENDER_TIMEOUT_MS = 30 * 60 * 1000;   // 30 min
+const DEFAULT_RENDER_TIMEOUT_MS = 60 * 60 * 1000;   // 60 min
 const MAX_RENDER_TIMEOUT_MS = 60 * 60 * 1000;       // 60 min
 // Grace period after cancel() before the queue gives up waiting for the
-// in-flight job to settle. Stops a stuck cancel from blocking other jobs.
+// in-flight job to settle. If Remotion does not honor cancellation, the
+// renderer exits and Docker restarts the container so Chromium/FFmpeg cannot
+// survive as orphaned work.
 const CANCEL_GRACE_MS = 60 * 1000;                  // 1 min
+// The editor polls every two seconds. Treat a client that disappears for three
+// minutes as abandoned and cancel its queued/running job. This stops a closed
+// tab or lost network connection from burning CPU until the hard timeout.
+const CLIENT_LEASE_MS = Math.max(30 * 1000,
+    Number.parseInt(process.env.RENDER_CLIENT_LEASE_MS || "", 10) || 3 * 60 * 1000);
+// A healthy render continuously advances frames or moves between stages. A
+// five-minute work stall is a stronger signal of wedged Chromium/FFmpeg than
+// total wall time, and does not penalize long videos that keep progressing.
+const RENDER_STALL_MS = Math.max(60 * 1000,
+    Number.parseInt(process.env.RENDER_STALL_MS || "", 10) || 5 * 60 * 1000);
+// Bound accidental double-submits and unattended batches. One job runs while
+// at most two wait by default.
+const MAX_PENDING_JOBS = Math.max(1, Math.min(20,
+    Number.parseInt(process.env.MAX_PENDING_RENDER_JOBS || "", 10) || 3));
+const TERMINAL_JOB_STATUSES = new Set(["done", "failed", "cancelled", "timed_out"]);
 
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
@@ -325,6 +342,12 @@ function newJob() {
         // Set by the POST /render handler before enqueue().
         timeoutMs: DEFAULT_RENDER_TIMEOUT_MS,
         timedOut: false,
+        cancelled: false,
+        cancelKind: null,
+        cancelReason: null,
+        cancelHooks: new Set(),
+        lastClientSeenAt: Date.now(),
+        lastWorkAt: Date.now(),
     };
     jobs.set(id, record);
     return record;
@@ -336,27 +359,13 @@ function newJob() {
 // second browser launch to time out at 30 s ("setting up the headless
 // browser") and leaves zombie chrome-headless processes behind.
 //
-// Hardened: the chain catches errors so one failed task doesn't poison the
-// queue, AND each task is wrapped with a hard timeout so a hung renderMedia
-// (cancel signal not honored, ffmpeg deadlocked, etc.) can't pin the queue
-// forever. After CANCEL_GRACE_MS past the timeout we give up waiting and
-// let the next job start regardless.
+// The chain catches errors so one failed task doesn't poison the queue. A
+// cancellation that Remotion does not honor is handled by restarting this
+// renderer process (see runRender), never by starting a second render beside
+// the wedged one.
 let renderQueue = Promise.resolve();
-function enqueue(task, { maxWaitMs, label } = {}) {
-    renderQueue = renderQueue.then(() => {
-        if (!Number.isFinite(maxWaitMs) || maxWaitMs <= 0) return task();
-        // Race the task against a hard ceiling. If the task never resolves
-        // (a wedged renderMedia, ffmpeg deadlock, …) we move on so the
-        // next queued job can start. The orphaned task continues running
-        // in the background but no longer holds the queue.
-        return Promise.race([
-            task(),
-            new Promise((resolve) => setTimeout(() => {
-                console.warn(`[videobox-render] queue gave up waiting on ${label || "task"} after ${Math.round(maxWaitMs / 1000)}s — moving on`);
-                resolve();
-            }, maxWaitMs)),
-        ]);
-    }).catch((err) => {
+function enqueue(task) {
+    renderQueue = renderQueue.then(() => task()).catch((err) => {
         console.warn(`[videobox-render] queue task threw: ${err?.message || err}`);
     });
     return renderQueue;
@@ -381,7 +390,7 @@ async function renderFull({ job, serveUrl, composition, inputProps, outputLocati
         timeoutInMilliseconds: 120000,
         cancelSignal,
         onProgress: ({ progress }) => {
-            job.progress = Math.min(0.999, Math.max(0, progress));
+            updateJobProgress(job, progress);
             const pct = Math.floor(progress * 100);
             if (pct !== lastLoggedPct && pct % 5 === 0) {
                 lastLoggedPct = pct;
@@ -393,18 +402,46 @@ async function renderFull({ job, serveUrl, composition, inputProps, outputLocati
 
 // Helper: zip a directory's contents into outPath. Returns when the zip is
 // fully written and closed.
-function zipDirectory(srcDir, outPath) {
+function zipDirectory(srcDir, outPath, job) {
     return new Promise((resolve, reject) => {
         const output = fs.createWriteStream(outPath);
         const archive = archiver("zip", { zlib: { level: 6 } });
-        output.on("close", resolve);
+        let settled = false;
+        const finish = (err) => {
+            if (settled) return;
+            settled = true;
+            job.cancelHooks.delete(cancelZip);
+            if (err) reject(err);
+            else resolve();
+        };
+        const cancelZip = () => {
+            const err = new Error(job.cancelReason || "cancelled");
+            try { archive.abort(); } catch (_) {}
+            output.destroy(err);
+            finish(err);
+        };
+        job.cancelHooks.add(cancelZip);
+        output.on("close", () => finish());
+        output.on("error", finish);
         archive.on("warning", (err) => {
-            if (err.code !== "ENOENT") reject(err);
+            if (err.code !== "ENOENT") finish(err);
         });
-        archive.on("error", reject);
+        archive.on("error", finish);
+        let lastProcessedBytes = 0;
+        archive.on("progress", ({ fs: archiveProgress }) => {
+            const processedBytes = archiveProgress?.processedBytes || 0;
+            if (processedBytes > lastProcessedBytes) {
+                lastProcessedBytes = processedBytes;
+                job.lastWorkAt = Date.now();
+            }
+        });
         archive.pipe(output);
         archive.directory(srcDir, false);
-        archive.finalize();
+        if (job.cancelled) {
+            cancelZip();
+            return;
+        }
+        archive.finalize().catch(finish);
     });
 }
 
@@ -424,46 +461,97 @@ function getTotalFramesForScenes(scenes, fps) {
     return scenes.reduce((total, scene) => total + sceneDurationFrames(scene, fps), 0);
 }
 
+function markJobStage(job, status) {
+    if (job.status !== status) {
+        job.status = status;
+        job.lastWorkAt = Date.now();
+    }
+}
+
+function updateJobProgress(job, progress) {
+    const bounded = Math.min(0.999, Math.max(0, progress));
+    if (bounded > job.progress) job.lastWorkAt = Date.now();
+    job.progress = bounded;
+}
+
+function requestJobCancellation(job, reason, kind = "user") {
+    if (TERMINAL_JOB_STATUSES.has(job.status) || job.cancelled) return false;
+    job.cancelReason = reason;
+    job.cancelKind = kind;
+    if (typeof job.cancelFn === "function") {
+        job.cancelFn();
+    } else {
+        // The job is still queued and has no Remotion cancel signal yet.
+        job.cancelled = true;
+        job.status = "cancelled";
+        job.error = reason;
+        job.finishedAt = Date.now();
+    }
+    return true;
+}
+
 async function runRender(job, inputProps, mode) {
     // Skip if the job was cancelled while still queued.
     if (job.cancelled) {
         console.log(`[videobox-render] ${job.id} skipped (cancelled before start)`);
         return;
     }
-    job.status = "bundling";
+    markJobStage(job, "bundling");
     job.startedAt = Date.now();
     console.log(`[videobox-render] ${job.id} start (mode=${mode}, timeout=${Math.round(job.timeoutMs / 1000)}s)`);
     // One cancel signal per job. cancel() is wired to job.cancelFn so the
     // /cancel endpoint can fire it from outside this scope.
     const { cancelSignal, cancel } = makeCancelSignal();
+    let cancelEscalationHandle = null;
     job.cancelFn = () => {
         if (job.cancelled) return;
         job.cancelled = true;
         try { cancel(); } catch (_) {}
+        for (const hook of [...job.cancelHooks]) {
+            try { hook(); } catch (_) {}
+        }
+        // If cancellation cannot unwind Remotion, the only reliable way to
+        // kill all descendants is to terminate the container. Docker's
+        // restart policy brings the idle renderer back, and init:true reaps
+        // Chromium/FFmpeg. Starting another queued job here would overlap it
+        // with the stuck process and make host contention worse.
+        cancelEscalationHandle = setTimeout(() => {
+            if (job.finishedAt) return;
+            console.error(`[videobox-render] FATAL ${job.id} did not stop within ${Math.round(CANCEL_GRACE_MS / 1000)}s; exiting renderer to kill orphan processes`);
+            process.exit(1);
+        }, CANCEL_GRACE_MS);
+        cancelEscalationHandle.unref();
     };
     // Hard timeout failsafe: if the render hasn't settled within
-    // job.timeoutMs we mark it timed-out and fire the cancel signal. The
-    // queue's per-task race in enqueue() backs this up by giving up
-    // waiting after a further CANCEL_GRACE_MS so a stuck render can't
-    // pin the queue.
+    // job.timeoutMs we mark it timed-out and fire the cancel signal. If it
+    // cannot unwind within CANCEL_GRACE_MS, cancel escalation restarts the
+    // renderer rather than allowing overlapping orphan work.
     let timedOut = false;
     const timeoutHandle = setTimeout(() => {
         if (job.cancelled || job.status === "done") return;
         timedOut = true;
         job.timedOut = true;
         console.warn(`[videobox-render] ${job.id} TIMEOUT after ${Math.round(job.timeoutMs / 1000)}s — cancelling`);
-        try { job.cancelFn?.(); } catch (_) {}
+        requestJobCancellation(job, `render exceeded ${Math.round(job.timeoutMs / 1000)}s timeout`, "timeout");
     }, job.timeoutMs);
+    const stallHandle = setInterval(() => {
+        if (job.cancelled || TERMINAL_JOB_STATUSES.has(job.status)) return;
+        if (Date.now() - job.lastWorkAt < RENDER_STALL_MS) return;
+        const reason = `render made no progress for ${Math.round(RENDER_STALL_MS / 1000)}s in ${job.status}`;
+        console.warn(`[videobox-render] ${job.id} STALLED — ${reason}; cancelling`);
+        requestJobCancellation(job, reason, "stall");
+    }, Math.min(30 * 1000, Math.floor(RENDER_STALL_MS / 2)));
+    stallHandle.unref();
     try {
         const serveUrl = await getBundle();
         if (job.cancelled) throw new Error("cancelled");
         // Pre-warm the asset cache so every URL the bundle will hit
         // (looped back through /cache) is already on local disk. Stops
         // the multi-tab CDN-download race that used to deadlock renders.
-        job.status = "caching";
+        markJobStage(job, "caching");
         await prewarmAssets(inputProps);
         if (job.cancelled) throw new Error("cancelled");
-        job.status = "selecting";
+        markJobStage(job, "selecting");
         const composition = await selectComposition({
             serveUrl,
             id: COMPOSITION_ID,
@@ -478,7 +566,7 @@ async function runRender(job, inputProps, mode) {
             throw new Error("inputProps.scenes must be a non-empty array");
         }
         composition.durationInFrames = totalFrames;
-        job.status = "rendering";
+        markJobStage(job, "rendering");
 
         if (mode === "scenes") {
             // Per-scene mode: render one mp4 per scene by passing the FULL
@@ -537,7 +625,7 @@ async function runRender(job, inputProps, mode) {
                         // the bar in the editor advances smoothly over the
                         // entire batch instead of resetting per scene.
                         const overall = (i + progress) / totalScenes;
-                        job.progress = Math.min(0.999, Math.max(0, overall));
+                        updateJobProgress(job, overall);
                         const pct = Math.floor(progress * 100);
                         if (pct !== lastLoggedPct && pct % 25 === 0) {
                             lastLoggedPct = pct;
@@ -548,11 +636,12 @@ async function runRender(job, inputProps, mode) {
             }
 
             // Bundle everything into a single zip.
-            job.status = "packing";
+            markJobStage(job, "packing");
             const zipName = `videobox-scenes-${job.id}.zip`;
             const zipPath = path.join(OUTPUT_DIR, zipName);
             console.log(`[videobox-render] ${job.id} zipping ${totalScenes} scenes → ${zipName}`);
-            await zipDirectory(sceneDir, zipPath);
+            await zipDirectory(sceneDir, zipPath, job);
+            if (job.cancelled) throw new Error(job.cancelReason || "cancelled");
             // Drop the per-scene mp4s now that they're inside the zip.
             try { fs.rmSync(sceneDir, { recursive: true, force: true }); } catch (_) {}
 
@@ -570,7 +659,7 @@ async function runRender(job, inputProps, mode) {
         }
 
         job.progress = 1;
-        job.status = "done";
+        markJobStage(job, "done");
         job.finishedAt = Date.now();
         const ms = job.finishedAt - job.startedAt;
         console.log(`[videobox-render] ${job.id} done in ${ms}ms → ${job.outputName}`);
@@ -584,10 +673,14 @@ async function runRender(job, inputProps, mode) {
             console.log(`[videobox-render] ${job.id} timed_out`);
             job.status = "timed_out";
             job.error = `render exceeded ${Math.round(job.timeoutMs / 1000)}s timeout`;
+        } else if (job.cancelKind === "stall") {
+            console.error(`[videobox-render] ${job.id} failed: ${job.cancelReason}`);
+            job.status = "failed";
+            job.error = job.cancelReason;
         } else if (isCancelled) {
             console.log(`[videobox-render] ${job.id} cancelled`);
             job.status = "cancelled";
-            job.error = "cancelled by user";
+            job.error = job.cancelReason || "cancelled by user";
         } else {
             console.error(`[videobox-render] ${job.id} FAIL`, err);
             job.status = "failed";
@@ -604,8 +697,16 @@ async function runRender(job, inputProps, mode) {
             const partial = path.join(OUTPUT_DIR, `videobox-${job.id}.mp4`);
             if (fs.existsSync(partial)) fs.unlinkSync(partial);
         } catch (_) {}
+        try {
+            const partialZip = path.join(OUTPUT_DIR, `videobox-scenes-${job.id}.zip`);
+            if (fs.existsSync(partialZip)) fs.unlinkSync(partialZip);
+        } catch (_) {}
     } finally {
         clearTimeout(timeoutHandle);
+        clearInterval(stallHandle);
+        if (cancelEscalationHandle) clearTimeout(cancelEscalationHandle);
+        job.cancelHooks.clear();
+        job.cancelFn = null;
     }
 }
 
@@ -613,7 +714,24 @@ async function runRender(job, inputProps, mode) {
 const app = express();
 app.use(express.json({ limit: "8mb" }));
 
-app.get("/health", (_req, res) => res.json({ ok: true }));
+app.get("/health", (_req, res) => {
+    const active = [...jobs.values()].filter((job) => !TERMINAL_JOB_STATUSES.has(job.status));
+    const current = active.find((job) => job.status !== "queued") || null;
+    res.json({
+        ok: true,
+        activeJobs: active.length,
+        queuedJobs: active.filter((job) => job.status === "queued").length,
+        renderConcurrency: RENDER_CONCURRENCY,
+        current: current ? {
+            id: current.id,
+            status: current.status,
+            progress: Math.round(current.progress * 1000) / 1000,
+            elapsedMs: current.startedAt ? Date.now() - current.startedAt : 0,
+            workIdleMs: Date.now() - current.lastWorkAt,
+            clientIdleMs: Date.now() - current.lastClientSeenAt,
+        } : null,
+    });
+});
 
 // Loopback asset cache. The rendered bundle's ASSET_BASE_URL points here,
 // so OffthreadVideo / Audio / Img inside the headless tab reads files
@@ -653,6 +771,14 @@ app.post("/render", (req, res) => {
         inputProps = body;
         mode = "integral";
     }
+    if (!getInputScenes(inputProps).length) {
+        return res.status(400).json({ ok: false, error: "props.scenes must be a non-empty array" });
+    }
+    const pendingJobs = [...jobs.values()].filter((job) => !TERMINAL_JOB_STATUSES.has(job.status)).length;
+    if (pendingJobs >= MAX_PENDING_JOBS) {
+        res.setHeader("Retry-After", "30");
+        return res.status(429).json({ ok: false, error: "render queue is full" });
+    }
     // Inject only the selected Lottie transition (if any) so the bundle
     // reads it synchronously from inputProps instead of fetching at render
     // time. Avoids shipping ~1.5 MB of unused Lottie JSON in every render.
@@ -662,7 +788,7 @@ app.post("/render", (req, res) => {
         : {};
     inputProps = { ...inputProps, transitions: scopedTransitions };
     // Per-request timeout (seconds), clamped to [1, MAX_RENDER_TIMEOUT_MS/1000].
-    // Default 15 min. If ?timeout is malformed we fall back to default rather
+    // Default 60 min. If ?timeout is malformed we fall back to default rather
     // than 400ing — the caller might be a legacy editor without the param.
     const rawTimeout = Number.parseInt(String(req.query.timeout || ""), 10);
     const timeoutMs = Number.isFinite(rawTimeout) && rawTimeout > 0
@@ -672,10 +798,7 @@ app.post("/render", (req, res) => {
     job.mode = mode;
     job.timeoutMs = timeoutMs;
     console.log(`[videobox-render] ${job.id} queued (mode=${mode}, transition=${selectedTransition || "none"}, timeout=${Math.round(timeoutMs / 1000)}s)`);
-    enqueue(() => runRender(job, inputProps, mode), {
-        maxWaitMs: timeoutMs + CANCEL_GRACE_MS,
-        label: job.id,
-    });
+    enqueue(() => runRender(job, inputProps, mode));
     res.json({ ok: true, id: job.id, mode, timeoutSec: Math.round(timeoutMs / 1000) });
 });
 
@@ -684,6 +807,7 @@ app.get("/render/:id/status", (req, res) => {
     if (!job) {
         return res.status(404).json({ ok: false, error: "unknown render id" });
     }
+    job.lastClientSeenAt = Date.now();
     const payload = {
         ok: true,
         id: job.id,
@@ -703,19 +827,11 @@ app.post("/render/:id/cancel", (req, res) => {
     if (!job) {
         return res.status(404).json({ ok: false, error: "unknown render id" });
     }
-    if (["done", "failed", "cancelled", "timed_out"].includes(job.status)) {
+    if (TERMINAL_JOB_STATUSES.has(job.status)) {
         return res.json({ ok: true, id: job.id, status: job.status, note: "already finished" });
     }
     console.log(`[videobox-render] ${job.id} cancel requested (status=${job.status})`);
-    if (typeof job.cancelFn === "function") {
-        job.cancelFn();
-    } else {
-        // No cancel function yet → render is queued but hasn't started.
-        // Mark cancelled so the worker skips it when it gets to the head.
-        job.cancelled = true;
-        job.status = "cancelled";
-        job.finishedAt = Date.now();
-    }
+    requestJobCancellation(job, "cancelled by user", "user");
     res.json({ ok: true, id: job.id, status: job.status });
 });
 
@@ -727,6 +843,7 @@ app.get("/render/:id/file", (req, res) => {
     if (job.status !== "done" || !job.outputPath) {
         return res.status(409).json({ ok: false, error: `not ready (status=${job.status})` });
     }
+    job.lastClientSeenAt = Date.now();
     res.setHeader("Content-Type", job.outputMime || "application/octet-stream");
     res.setHeader(
         "Content-Disposition",
@@ -740,11 +857,24 @@ app.get("/render/:id/file", (req, res) => {
     });
 });
 
-// Periodic sweep: drop job records and orphan mp4s older than JOB_TTL_MS.
+// Cancel work whose editor disappeared. The normal editor polls every 2s;
+// three minutes gives ample room for transient network issues while ensuring a
+// closed tab cannot burn CPU until the 60-minute hard timeout.
+setInterval(() => {
+    const cutoff = Date.now() - CLIENT_LEASE_MS;
+    for (const job of jobs.values()) {
+        if (TERMINAL_JOB_STATUSES.has(job.status) || job.cancelled || job.lastClientSeenAt >= cutoff) continue;
+        console.warn(`[videobox-render] ${job.id} client lease expired (status=${job.status}); cancelling abandoned job`);
+        requestJobCancellation(job, "render cancelled because the client stopped polling", "client_lease");
+    }
+}, Math.min(30 * 1000, Math.floor(CLIENT_LEASE_MS / 2))).unref();
+
+// Periodic sweep: drop terminal job records and orphan mp4s older than
+// JOB_TTL_MS. Active jobs retain their cancellation handles regardless of age.
 setInterval(() => {
     const cutoff = Date.now() - JOB_TTL_MS;
     for (const [id, job] of jobs) {
-        if ((job.finishedAt || job.createdAt) < cutoff) {
+        if (TERMINAL_JOB_STATUSES.has(job.status) && job.finishedAt < cutoff) {
             if (job.outputPath) fs.unlink(job.outputPath, () => {});
             jobs.delete(id);
         }
@@ -758,6 +888,10 @@ setInterval(() => {
             try {
                 const st = fs.statSync(p);
                 if (st.mtimeMs >= cutoff) continue;
+                const belongsToActiveJob = [...jobs.values()].some(
+                    (job) => !TERMINAL_JOB_STATUSES.has(job.status) && entry.name.includes(job.id)
+                );
+                if (belongsToActiveJob) continue;
                 if (entry.isDirectory() && entry.name.startsWith("scenes-")) {
                     fs.rmSync(p, { recursive: true, force: true });
                 } else if (entry.isFile() && /\.(mp4|zip)$/.test(entry.name)) {

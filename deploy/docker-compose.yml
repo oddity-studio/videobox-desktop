@@ -44,6 +44,12 @@ services:
     # this the container sees the full host RAM via cgroup (~8 EB warning
     # in the Remotion logs) and an OOM could take other services with it.
     mem_limit: 6g
+    # Renders may consume all idle cores, but should yield to latency-sensitive
+    # services when this compose stack shares a host with them.
+    cpu_shares: 256
+    # One render currently uses roughly 111 PIDs; bound Chromium leaks while
+    # leaving more than 2x normal headroom at RENDER_CONCURRENCY=1.
+    pids_limit: 256
     environment:
       NODE_ENV: production
       PORT: 3001
@@ -54,6 +60,9 @@ services:
       NEXT_PUBLIC_RENDER_API_BASE: ${NEXT_PUBLIC_RENDER_API_BASE:-/api/render}
       NEXT_PUBLIC_FEED_BASE_URL: ${NEXT_PUBLIC_FEED_BASE_URL:-/audeobox-feeds}
       RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-1}
+      RENDER_CLIENT_LEASE_MS: ${RENDER_CLIENT_LEASE_MS:-180000}
+      RENDER_STALL_MS: ${RENDER_STALL_MS:-300000}
+      MAX_PENDING_RENDER_JOBS: ${MAX_PENDING_RENDER_JOBS:-3}
     ports:
       - "${VIDEOBOX_BIND_HOST:-127.0.0.1}:${VIDEOBOX_RENDER_PORT:-3101}:3001"
     volumes:
