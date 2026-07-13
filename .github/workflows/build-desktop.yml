@@ -58,3 +58,23 @@ jobs:
           path: |
             dist-packages/*.dmg
             dist-packages/*.zip
+      # The build is unsigned (no Apple Developer cert yet), so macOS
+      # quarantines the downloaded app and shows a misleading "Videobox is
+      # damaged" dialog. Put the workaround on the run page, right where
+      # people download the artifact.
+      - name: macOS install instructions
+        run: |
+          {
+            echo "## macOS install note"
+            echo ""
+            echo "The app is **unsigned**, so after downloading macOS will claim it is *damaged*. It isn't — that's the quarantine flag on unsigned apps."
+            echo ""
+            echo "1. Open the dmg and drag **Videobox** to Applications"
+            echo "2. In Terminal run:"
+            echo ""
+            echo '   ```'
+            echo "   xattr -cr /Applications/Videobox.app"
+            echo '   ```'
+            echo ""
+            echo "3. Launch normally. One time per machine."
+          } >> "$GITHUB_STEP_SUMMARY"
