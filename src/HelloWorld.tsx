@@ -2541,10 +2541,12 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; text2?: string; tex
           );
         }
 
-        // Explicit line breaks win: with \n in the text, each typed line is
-        // one animated unit (words stay together on their row). Without \n
-        // the classic one-word-per-row stack is unchanged.
-        const words = text.includes("\n") ? text.split("\n") : text.split(" ");
+        // multilineText layouts: Enter is the ONLY line break — text without
+        // \n stays on a single row (spaces never wrap words anymore). Other
+        // layouts keep the classic one-word-per-row stack.
+        const words = resolvedLayout.multilineText
+          ? (text || "").split("\n")
+          : text.split(" ");
         const totalWords = words.length;
         const revealWindow = dur - 50;
         const lineHeight = resolvedFontSize * 1.1;
