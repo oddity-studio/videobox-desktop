@@ -1564,11 +1564,16 @@ export default function Editor() {
     <div
       key={i}
       className={`scene-list-row${i === selectedSceneIndex && !compact ? " is-selected" : ""}`}
-      onClick={() => {
+      onClick={(e) => {
         setSelectedSceneIndex(i);
-        // Also jump the player to this scene's start so the preview
-        // mirrors the click — same behaviour as clicking a timeline
-        // segment. Safe when the row is rendered in compact mode too:
+        // Don't restart the preview when the click landed in a text
+        // box / dropdown — typing would keep yanking the playhead back
+        // to the scene start. Selection above still happens.
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        // Jump the player to this scene's start so the preview mirrors
+        // the click — same behaviour as clicking a timeline segment.
+        // Safe when the row is rendered in compact mode too:
         // sceneStarts is keyed by index and updated with the scenes list.
         const startFrame = sceneStarts[i] ?? 0;
         playerRef.current?.seekTo(startFrame);
@@ -2228,14 +2233,14 @@ export default function Editor() {
           Center Text 1 is 3x the size of Center Text 2. */}
       {isHexRippleLayout(_layoutIdx) && (
         <>
-          <span style={{ ...styles.sceneInputCaption, marginTop: 6 }}>Center Text 1</span>
+          <span style={{ ...styles.sceneInputCaption, marginTop: 6 }}>Title</span>
           <input
             style={styles.sceneInput}
             value={scene.text2 || ""}
             onChange={(e) => updateScene(i, "text2", e.target.value)}
             placeholder="Big center line..."
           />
-          <span style={{ ...styles.sceneInputCaption, marginTop: 6 }}>Center Text 2</span>
+          <span style={{ ...styles.sceneInputCaption, marginTop: 6 }}>Text</span>
           {/* Multiline: Enter adds a row and the box grows to fit — each
               line renders as its own row in the scene (HexRippleOverlay). */}
           <textarea
