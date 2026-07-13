@@ -9,3 +9,7 @@ public/
 .env.*
 !.env.example
 !deploy/.env.example
+# GCS service account keys live here (e.g. env/audeobox-sounds-signer.json)
+# — was previously unprotected since only .env/.env.* were ignored, not
+# this directory itself.
+env/
