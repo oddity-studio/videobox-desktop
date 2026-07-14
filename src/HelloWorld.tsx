@@ -6,30 +6,18 @@ import {
   spring,
   interpolate,
   Sequence,
-  Loop,
   Img,
-  // OffthreadVideo decodes via ffmpeg out of band — required for HEVC/H.265
-  // assets like Cube.mp4 in server-side renders (Chrome Headless Shell only
-  // ships H.264). It also falls back to plain <video> in @remotion/player so
-  // the editor preview behaves identically.
-  OffthreadVideo as Video,
   Easing,
-  // Used ONLY during server renders (gated on frameSyncMedia) for looping
-  // media: plain <video autoPlay>/<img> play on WALL CLOCK, which is
-  // undefined during a render — frames aren't captured in real time, so the
-  // media raced through its whole sequence in a few output frames
-  // ("twitching"). Preview keeps the cheap native elements. Looping videos
-  // render as OffthreadVideo inside <Loop> (frame extraction happens in
-  // Remotion's ffmpeg compositor) because Html5Video's per-frame seeking
-  // never completes in Linux headless Chrome — the seek to frame 1 hangs
-  // until delayRender times out. delayRender/continueRender power the
-  // metadata probe that measures the loop length.
+  // Fire webp (SlideLinesOverlay) still frame-syncs via AnimatedImage during
+  // renders, gated on frameSyncMedia + isRendering — an animated webp in a
+  // plain <img> plays on wall clock, which is undefined while rendering.
+  // Looping VIDEOS are handled by @remotion/media's <Video> (MediaVideo)
+  // instead, which is frame-accurate in both preview and render.
   AnimatedImage,
   getRemotionEnvironment,
-  delayRender,
-  continueRender,
   Audio,
 } from "remotion";
+import { Video as MediaVideo } from "@remotion/media";
 import type { VideoProps, Scene } from "./types";
 import { getSceneFrames } from "./types";
 import { LottieTransition, getTransitionProfile } from "./LottieTransition";
@@ -56,12 +44,19 @@ export const getLayoutControls = (index: number): CustomControl[] =>
  * String labels are preferred in stored presets because they survive template reordering.
  */
 export const resolveLayoutIndex = (layout: number | string | undefined, fallback: number): number => {
-  if (typeof layout === "number") return layout;
+  const safeFallback = Number.isSafeInteger(fallback) && fallback >= 0
+    ? fallback % SCENE_LAYOUTS.length
+    : 0;
+  if (typeof layout === "number") {
+    return Number.isSafeInteger(layout) && layout >= 0 && layout < SCENE_LAYOUTS.length
+      ? layout
+      : safeFallback;
+  }
   if (typeof layout === "string") {
     const idx = SCENE_LAYOUTS.findIndex((l) => l.label === layout);
-    return idx >= 0 ? idx : fallback;
+    return idx >= 0 ? idx : safeFallback;
   }
-  return fallback;
+  return safeFallback;
 };
 
 export const getLayoutLabel = (index: number): string | undefined => SCENE_LAYOUTS[index]?.label;
@@ -97,39 +92,6 @@ export const getLayoutDefaultDuration = (index: number): number | undefined =>
   SCENE_LAYOUTS[index]?.defaultDuration;
 export const getLayoutDefaultFontSize = (index: number): number | undefined =>
   SCENE_LAYOUTS[index]?.textDefaults?.fontSize;
-
-// Measure a video's duration in frames so a looping OffthreadVideo can be
-// wrapped in <Loop durationInFrames>. Only engaged during frame-synced
-// renders (pass null src otherwise — the hook is inert then). Metadata
-// loads reliably even in Linux headless Chrome; it's per-frame seeking of
-// <video> elements that hangs there, which is why looping media renders
-// through OffthreadVideo (ffmpeg frame extraction) instead of Html5Video.
-const useLoopedVideoFrames = (src: string | null, fps: number): number | null => {
-  const [frames, setFrames] = React.useState<number | null>(null);
-  // Handle created during render (not in the effect) so Remotion can never
-  // capture a frame between mount and the effect running.
-  const [handle] = React.useState(() => (src ? delayRender(`Measuring loop duration of ${src}`) : null));
-  React.useEffect(() => {
-    if (!src || handle === null) return;
-    const v = document.createElement("video");
-    v.preload = "metadata";
-    const done = () => {
-      if (Number.isFinite(v.duration) && v.duration > 0) {
-        setFrames(Math.max(1, Math.round(v.duration * fps)));
-      }
-      continueRender(handle);
-    };
-    v.addEventListener("loadedmetadata", done, { once: true });
-    v.addEventListener("error", done, { once: true });
-    v.src = src;
-    return () => {
-      v.removeEventListener("loadedmetadata", done);
-      v.removeEventListener("error", done);
-      v.removeAttribute("src");
-    };
-  }, [src, fps, handle]);
-  return frames;
-};
 
 export const resolveSceneMusic = (scene: Scene): { src: string; fadeIn?: number; fadeOut?: number; startFrom?: number } | undefined => {
   const layoutIndex = resolveLayoutIndex(scene.layout, 0);
@@ -473,24 +435,18 @@ const BattleWaveform: React.FC<{ centerY: number; color: string; glowColor: stri
 const BOTW_OVERLAY = assetUrl("botw.webm");
 
 const BotwVideo: React.FC = () => {
-  const [exists, setExists] = React.useState<boolean | null>(null);
-  React.useEffect(() => {
-    fetch(BOTW_OVERLAY, { method: "HEAD" })
-      .then((r) => setExists(r.ok))
-      .catch(() => setExists(false));
-  }, []);
-  if (!exists) return null;
   return (
     <AbsoluteFill style={{ zIndex: 20 }}>
-      <Video
+      <MediaVideo
         src={BOTW_OVERLAY}
-        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        objectFit="cover"
+        style={{ width: "100%", height: "100%" }}
       />
     </AbsoluteFill>
   );
 };
 
-const BattleOverlay: React.FC<{ text: string; sceneDuration: number; slide?: number; colors: ColorScheme }> = ({ text, sceneDuration, slide = 0, colors }) => {
+const BattleOverlay: React.FC<{ text: string; sceneDuration: number; slide?: number; colors: ColorScheme; fontConfig: FontConfig; fontSize?: number }> = ({ text, sceneDuration, slide = 0, colors, fontConfig, fontSize = 95 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const enter = spring({ frame, fps, config: { damping: 200 } });
@@ -503,8 +459,13 @@ const BattleOverlay: React.FC<{ text: string; sceneDuration: number; slide?: num
   const userA = parts[0] || "";
   const userB = parts[1] || "";
 
-  const exo2 = FONT_MAP["Exo 2"];
   const anton = FONT_MAP["Anton"];
+  // User A/B names use the scene's selected font + size (active name at
+  // fontSize, inactive name scaled down, preserving the original
+  // 70/95 ratio between the two states). "VS" stays fixed — it's a
+  // graphic element, not body text the user is naming.
+  const activeSize = fontSize;
+  const inactiveSize = fontSize * (70 / 95);
 
   // Layout: VS at center (960), User A + waveform above, User B + waveform below
   const vsY = 960;
@@ -543,15 +504,15 @@ const BattleOverlay: React.FC<{ text: string; sceneDuration: number; slide?: num
         }}>
           {slide === 0 ? (
             <p style={{
-              fontFamily: exo2.fontFamily, fontWeight: 800, fontStyle: "italic",
-              fontSize: 95, color: "#38fff8",
+              fontFamily: fontConfig.fontFamily, fontWeight: fontConfig.fontWeight ?? 800, fontStyle: fontConfig.fontStyle ?? "italic",
+              fontSize: activeSize, color: "#38fff8",
               textShadow: "0 0 30px rgba(56,255,248,0.85), 0 0 15px rgba(56,255,248,0.85)",
               margin: 0, textTransform: "uppercase",
             }}>{userA}</p>
           ) : (
             <p style={{
-              fontFamily: exo2.fontFamily, fontWeight: 700, fontStyle: "italic",
-              fontSize: 70, color: "#FFFFFF", opacity: 0.5, letterSpacing: 20,
+              fontFamily: fontConfig.fontFamily, fontWeight: fontConfig.fontWeight ?? 700, fontStyle: fontConfig.fontStyle ?? "italic",
+              fontSize: inactiveSize, color: "#FFFFFF", opacity: 0.5, letterSpacing: 20,
               margin: 0, textTransform: "uppercase",
             }}>{userA}</p>
           )}
@@ -579,15 +540,15 @@ const BattleOverlay: React.FC<{ text: string; sceneDuration: number; slide?: num
         }}>
           {slide === 1 ? (
             <p style={{
-              fontFamily: exo2.fontFamily, fontWeight: 800, fontStyle: "italic",
-              fontSize: 95, color: "#fc9990",
+              fontFamily: fontConfig.fontFamily, fontWeight: fontConfig.fontWeight ?? 800, fontStyle: fontConfig.fontStyle ?? "italic",
+              fontSize: activeSize, color: "#fc9990",
               textShadow: "0 0 30px rgba(252,153,144,0.85), 0 0 15px rgba(252,153,144,0.85)",
               margin: 0, textTransform: "uppercase",
             }}>{userB}</p>
           ) : (
             <p style={{
-              fontFamily: exo2.fontFamily, fontWeight: 700, fontStyle: "italic",
-              fontSize: 70, color: "#FFFFFF", opacity: 0.5, letterSpacing: 20,
+              fontFamily: fontConfig.fontFamily, fontWeight: fontConfig.fontWeight ?? 700, fontStyle: fontConfig.fontStyle ?? "italic",
+              fontSize: inactiveSize, color: "#FFFFFF", opacity: 0.5, letterSpacing: 20,
               margin: 0, textTransform: "uppercase",
             }}>{userB}</p>
           )}
@@ -1775,9 +1736,9 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; text2?: string; tex
   colors,
   fontConfig,
   secondaryFontConfig,
-  fontSize = 150,
-  y: yOffset = 0,
-  x: xOffset = 0,
+  fontSize,
+  y: yOffset,
+  x: xOffset,
   rotateZ: rZ,
   rotateX: rX,
   perspective: persp,
@@ -1801,16 +1762,9 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; text2?: string; tex
   if (backgroundVideo && !backgroundVideo.src && resolvedLayout.backgroundVideo?.src) {
     backgroundVideo.src = resolvedLayout.backgroundVideo.src;
   }
-  // Loop length for loopVideo layouts, measured only during frame-synced
-  // renders (null src keeps the hook inert otherwise).
-  const loopVideoSrc =
-    frameSyncMedia && getRemotionEnvironment().isRendering && resolvedLayout.loopVideo && backgroundVideo?.src
-      ? assetUrl(backgroundVideo.src)
-      : null;
-  const loopVideoFrames = useLoopedVideoFrames(loopVideoSrc, fps);
   const resolvedFontSize = fontSize ?? td?.fontSize ?? 150;
-  const resolvedX = xOffset || td?.x || 0;
-  const resolvedY = yOffset || td?.y || 0;
+  const resolvedX = xOffset ?? td?.x ?? 0;
+  const resolvedY = yOffset ?? td?.y ?? 0;
 
   // Delay text entrance if belt stomp is present (wait for belt to land)
   const textDelay = resolvedLayout.beltStomp ? (resolvedLayout.spotlight ? fps + 25 : 25) : 0;
@@ -1892,77 +1846,29 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; text2?: string; tex
             alignItems: resolvedLayout.videoFit === "contain" ? "center" : undefined,
           }}
         >
-          {resolvedLayout.loopVideo ? (
-            frameSyncMedia && getRemotionEnvironment().isRendering ? (
-              loopVideoFrames != null && (
-                <Loop durationInFrames={loopVideoFrames} layout="none">
-                  <Video
-                    src={assetUrl(backgroundVideo.src)}
-                    muted
-                    style={
-                      resolvedLayout.videoFit === "contain"
-                        ? {
-                            height: "100%",
-                            width: "auto",
-                            transform: `scale(${backgroundVideo.scale ?? 1})`,
-                          }
-                        : {
-                            width: "100%",
-                            height: "100%",
-                            objectFit: "cover",
-                            transform: `scale(${backgroundVideo.scale ?? 1})`,
-                          }
-                    }
-                  />
-                </Loop>
-              )
-            ) : (
-              <video
-                src={assetUrl(backgroundVideo.src)}
-                autoPlay
-                loop
-                muted
-                playsInline
-                style={
-                  resolvedLayout.videoFit === "contain"
-                    ? {
-                        height: "100%",
-                        width: "auto",
-                        transform: `scale(${backgroundVideo.scale ?? 1})`,
-                      }
-                    : {
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                        transform: `scale(${backgroundVideo.scale ?? 1})`,
-                      }
-                }
-              />
-            )
-          ) : (
-            <Video
-              src={assetUrl(backgroundVideo.src)}
-              muted={backgroundVideo.muted !== false}
-              volume={resolvedLayout.battleOverlay
-                ? interpolate(frame, [0, fps * 2], [0, 1], { extrapolateRight: "clamp" })
-                : 1}
-              startFrom={backgroundVideo.startFrom ?? 0}
-              style={
-                resolvedLayout.videoFit === "contain"
-                  ? {
-                      height: "100%",
-                      width: "auto",
-                      transform: `scale(${backgroundVideo.scale ?? 1})`,
-                    }
-                  : {
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                      transform: `scale(${backgroundVideo.scale ?? 1})`,
-                    }
-              }
-            />
-          )}
+          <MediaVideo
+            src={assetUrl(backgroundVideo.src)}
+            objectFit={resolvedLayout.videoFit === "contain" ? "contain" : "cover"}
+            loop={resolvedLayout.loopVideo}
+            muted={backgroundVideo.muted !== false}
+            volume={resolvedLayout.battleOverlay
+              ? interpolate(frame, [0, fps * 2], [0, 1], { extrapolateRight: "clamp" })
+              : 1}
+            trimBefore={backgroundVideo.startFrom ?? 0}
+            style={
+              resolvedLayout.videoFit === "contain"
+                ? {
+                    height: "100%",
+                    width: "auto",
+                    transform: `scale(${backgroundVideo.scale ?? 1})`,
+                  }
+                : {
+                    width: "100%",
+                    height: "100%",
+                    transform: `scale(${backgroundVideo.scale ?? 1})`,
+                  }
+            }
+          />
           {backgroundVideo.blendMode === "normal" && (
             <div style={{
               position: "absolute",
@@ -2274,7 +2180,7 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; text2?: string; tex
 
       {/* Battle of the Week overlay */}
       {resolvedLayout.battleOverlay && (
-        <BattleOverlay text={text} sceneDuration={dur} slide={resolvedLayout.battleSlide ?? 0} colors={colors} />
+        <BattleOverlay text={text} sceneDuration={dur} slide={resolvedLayout.battleSlide ?? 0} colors={colors} fontConfig={fontConfig} fontSize={resolvedFontSize} />
       )}
 
       {/* Weekly Title overlay — date range text */}
@@ -2486,7 +2392,7 @@ const SceneCard: React.FC<{ text: string; subtitle?: string; text2?: string; tex
                         // 50pt smaller than the main caption text, but still
                         // tracks the scene's fontSize input since it's
                         // computed FROM resolvedFontSize, not a literal.
-                        fontSize: resolvedFontSize - 50,
+                        fontSize: Math.max(10, resolvedFontSize - 50),
                         fontFamily: subFont.fontFamily,
                         fontWeight: subFont.fontWeight ?? 700,
                         fontStyle: subFont.fontStyle ?? "normal",
@@ -2741,7 +2647,7 @@ const PrizesCard: React.FC<{ colorScheme: VideoProps["colorScheme"]; sceneDurati
   );
 };
 
-const TitleCard: React.FC<{ colorScheme: VideoProps["colorScheme"]; layoutIndex: number; fontConfig: FontConfig; text?: string; fontSize?: number }> = ({ colorScheme, layoutIndex, fontConfig, text, fontSize = 100 }) => {
+const TitleCard: React.FC<{ colorScheme: VideoProps["colorScheme"]; layoutIndex: number; fontConfig: FontConfig; text?: string; fontSize?: number; sceneDuration?: number }> = ({ colorScheme, layoutIndex, fontConfig, text, fontSize = 100, sceneDuration = SCENE_DURATION }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const resolvedLayout = SCENE_LAYOUTS[layoutIndex % SCENE_LAYOUTS.length];
@@ -2760,10 +2666,10 @@ const TitleCard: React.FC<{ colorScheme: VideoProps["colorScheme"]; layoutIndex:
         background: pan ? "#000000" : gradient,
       }}
     >
-      {pan && <ArenaPanLayer src={pan.src} direction={pan.direction} />}
+      {pan && <ArenaPanLayer src={pan.src} direction={pan.direction} sceneDuration={sceneDuration} />}
       {pan && <AbsoluteFill style={{ background: gradient, opacity: 0.6 }} />}
 
-      <CharacterLayer layoutIndex={layoutIndex} darkColor={colorScheme.dark} />
+      <CharacterLayer layoutIndex={layoutIndex} darkColor={colorScheme.dark} sceneDuration={sceneDuration} />
 
       {/* Explosion burst on logo impact */}
       {(() => {
@@ -2888,22 +2794,29 @@ const TitleCard: React.FC<{ colorScheme: VideoProps["colorScheme"]; layoutIndex:
 // data model. The shape is intentionally loose so the editor's <Player>
 // preview (which doesn't ship this prop) still typechecks.
 type HelloWorldProps = VideoProps & { transitions?: Record<string, unknown> };
+const GlobalVideoOverlay: React.FC<{ src: string }> = ({ src }) => {
+  return (
+    <AbsoluteFill style={{ mixBlendMode: "screen", zIndex: 100, pointerEvents: "none" }}>
+      <MediaVideo
+        src={assetUrl(src)}
+        objectFit="cover"
+        loop
+        muted
+        style={{ width: "100%", height: "100%" }}
+      />
+    </AbsoluteFill>
+  );
+};
+
+// frameSyncMedia stays in the signature: looping VIDEOS are frame-accurate
+// via MediaVideo now, but the fire webp (SlideLinesOverlay) still needs the
+// flag to swap its wall-clock <img> for AnimatedImage during renders.
 export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, music = "Tournament.mp3", transition = "flash.json", font = "Dela Gothic One", secondaryFont, overlayVideo = "none", frameSyncMedia = false, transitions }) => {
   const fontConfig = FONT_MAP[font] || FONT_MAP["Dela Gothic One"];
   // Falls back to the primary font when unset — currently used for the
   // Subtitle text in S13 Caption 1-4, but generic enough to reuse for any
   // future secondary text element.
   const secondaryFontConfig = FONT_MAP[secondaryFont || ""] || fontConfig;
-
-  // Loop length of the global overlay video, measured only during
-  // frame-synced renders (null src keeps the hook inert in preview and on
-  // deployments without the flag). 60 = composition fps (hardcoded across
-  // this file).
-  const overlayLoopSrc =
-    frameSyncMedia && getRemotionEnvironment().isRendering && overlayVideo && overlayVideo !== "none"
-      ? assetUrl(overlayVideo)
-      : null;
-  const overlayLoopFrames = useLoopedVideoFrames(overlayLoopSrc, 60);
 
   // Compute cumulative start positions for variable-duration scenes
   const sceneStarts: number[] = [];
@@ -2920,28 +2833,7 @@ export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, mus
 
       {/* Global screen-blended video overlay across entire composition */}
       {overlayVideo && overlayVideo !== "none" && (
-        <AbsoluteFill style={{ mixBlendMode: "screen", zIndex: 100, pointerEvents: "none" as const }}>
-          {frameSyncMedia && getRemotionEnvironment().isRendering ? (
-            overlayLoopFrames != null && (
-              <Loop durationInFrames={overlayLoopFrames} layout="none">
-                <Video
-                  src={assetUrl(overlayVideo)}
-                  muted
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                />
-              </Loop>
-            )
-          ) : (
-            <video
-              src={assetUrl(overlayVideo)}
-              autoPlay
-              loop
-              muted
-              playsInline
-              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            />
-          )}
-        </AbsoluteFill>
+        <GlobalVideoOverlay src={overlayVideo} />
       )}
 
       {/* Scene cards with Lottie transitions overlaid at scene start */}
@@ -2980,7 +2872,7 @@ export const HelloWorld: React.FC<HelloWorldProps> = ({ colorScheme, scenes, mus
               {sceneLayout.prizesGrid ? (
                 <PrizesCard colorScheme={colorScheme} sceneDuration={sceneFrames} text={scene.text} />
               ) : sceneLayout.titleCard ? (
-                <TitleCard colorScheme={colorScheme} fontConfig={fontConfig} layoutIndex={sceneLayoutIndex} text={scene.text} fontSize={scene.fontSize} />
+                <TitleCard colorScheme={colorScheme} fontConfig={fontConfig} layoutIndex={sceneLayoutIndex} text={scene.text} fontSize={scene.fontSize} sceneDuration={sceneFrames} />
               ) : (
                 <SceneCard text={scene.text} subtitle={scene.subtitle} text2={scene.text2} text3={scene.text3} index={i} layoutIndex={sceneLayoutIndex} colors={colorScheme} fontConfig={fontConfig} secondaryFontConfig={secondaryFontConfig} fontSize={scene.fontSize} y={scene.y} x={scene.x} rotateZ={scene.rotateZ} rotateX={scene.rotateX} perspective={scene.perspective} backgroundVideo={scene.backgroundVideo} sceneDuration={sceneFrames} overlayVideo={overlayVideo} portrait={scene.portrait} frameSyncMedia={frameSyncMedia} />
               )}

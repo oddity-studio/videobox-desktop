@@ -35,7 +35,7 @@ export const sceneSchema = z.object({
   rotateZ: z.number().optional(),
   rotateX: z.number().optional(),
   perspective: z.number().optional(),
-  duration: z.number().optional(),
+  duration: z.number().finite().positive().optional(),
   backgroundVideo: backgroundVideoSchema.optional(),
   portrait: z.string().optional(),
   sceneMusicMuted: z.boolean().optional(),
@@ -67,8 +67,13 @@ export type VideoProps = z.infer<typeof videoPropsSchema>;
 export const FPS = 60;
 export const DEFAULT_SCENE_DURATION = 3; // seconds
 
-export const getSceneFrames = (scene: Scene): number =>
-  (scene.duration ?? DEFAULT_SCENE_DURATION) * FPS;
+export const getSceneFrames = (scene: Scene): number => {
+  const seconds = Number(scene.duration ?? DEFAULT_SCENE_DURATION);
+  const safeSeconds = Number.isFinite(seconds) && seconds > 0
+    ? seconds
+    : DEFAULT_SCENE_DURATION;
+  return Math.max(1, Math.round(safeSeconds * FPS));
+};
 
 export const getTotalFrames = (props: VideoProps): number =>
   props.scenes.reduce((sum, s) => sum + getSceneFrames(s), 0);

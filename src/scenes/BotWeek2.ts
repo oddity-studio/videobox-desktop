@@ -4,7 +4,7 @@ const layout: SceneLayout = {
   label: "BotWeek2",
   category: "General",
   characters: [],
-  backgroundVideo: { src: "/Cube.mp4", scale: 1, blendMode: "normal", startFrom: 0 },
+  backgroundVideo: { src: "/Cube-h264.mp4", scale: 1, blendMode: "normal", startFrom: 0 },
   battleOverlay: true,
   battleSlide: 1,
   defaultDuration: 30,

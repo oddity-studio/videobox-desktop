@@ -44,15 +44,22 @@ services:
     # this the container sees the full host RAM via cgroup (~8 EB warning
     # in the Remotion logs) and an OOM could take other services with it.
     mem_limit: 6g
+    # Renders may consume all idle cores, but should yield to latency-sensitive
+    # services when this compose stack shares a host with them.
+    cpu_shares: 256
+    # One render currently uses roughly 111 PIDs; bound Chromium leaks while
+    # leaving more than 2x normal headroom at RENDER_CONCURRENCY=1.
+    pids_limit: 256
     environment:
       NODE_ENV: production
       PORT: 3001
       PROJECT_DIR: /project
       OUTPUT_DIR: /renders
-      # Chrome for Testing is baked into the image (see render.Dockerfile)
-      # so web renders use the same browser as the desktop app. To fall
-      # back to the Debian package: BROWSER_EXECUTABLE=/usr/bin/chromium.
-      CHROME_MODE: chrome-for-testing
+      # The render browser is the pinned chrome-headless-shell baked into
+      # the image (BROWSER_EXECUTABLE in render.Dockerfile) — newer builds
+      # SIGILL on the prod CPU. Frame-synced media doesn't need browser
+      # video decode (OffthreadVideo/AnimatedImage), so headless-shell is
+      # sufficient everywhere.
       NEXT_PUBLIC_ASSET_BASE_URL: ${NEXT_PUBLIC_ASSET_BASE_URL:-https://storage.googleapis.com/audeobox-cdn/videobox}
       NEXT_PUBLIC_RENDER_API_BASE: ${NEXT_PUBLIC_RENDER_API_BASE:-/api/render}
       NEXT_PUBLIC_FEED_BASE_URL: ${NEXT_PUBLIC_FEED_BASE_URL:-/audeobox-feeds}
@@ -60,6 +67,9 @@ services:
       # Frame-synced media (overlay video, loopVideo, fire webp) — same
       # behavior as the desktop app, so one videoProps tweak covers both.
       FRAME_SYNC_MEDIA: ${FRAME_SYNC_MEDIA:-1}
+      RENDER_CLIENT_LEASE_MS: ${RENDER_CLIENT_LEASE_MS:-180000}
+      RENDER_STALL_MS: ${RENDER_STALL_MS:-300000}
+      MAX_PENDING_RENDER_JOBS: ${MAX_PENDING_RENDER_JOBS:-3}
     ports:
       - "${VIDEOBOX_BIND_HOST:-127.0.0.1}:${VIDEOBOX_RENDER_PORT:-3101}:3001"
     volumes:

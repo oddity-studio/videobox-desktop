@@ -28,23 +28,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libxshmfence1 \
         libxss1 \
         wget \
+        unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Chromium >= ~142 crashes on this host's CPU with SIGILL ("trap invalid opcode"
+# in dmesg) — the prebuilt binary uses an instruction this GCP Xeon lacks. The
+# system `chromium` package (above) drifts to the latest on every rebuild and is
+# kept ONLY for its shared-lib dependencies. The actual render browser is a
+# pinned chrome-headless-shell known to run here (141 works; 142+ SIGILL).
+ARG CHROME_VERSION=141.0.7390.54
+RUN wget -q "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-headless-shell-linux64.zip" -O /tmp/chs.zip \
+    && mkdir -p /opt/chrome \
+    && unzip -q /tmp/chs.zip -d /opt/chrome \
+    && rm /tmp/chs.zip \
+    && ln -sf /opt/chrome/chrome-headless-shell-linux64/chrome-headless-shell /usr/local/bin/chrome-headless-shell
 
 WORKDIR /project
 
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
-
-# Bake Chrome for Testing (full Chrome, all codecs) into the image at build
-# time. The Debian chromium package (still installed above as an emergency
-# fallback — point BROWSER_EXECUTABLE at /usr/bin/chromium to use it) can't
-# present <video> frames in headless renders: Html5Video's frame-sync seek
-# waits forever and delayRender times out. Chrome for Testing is the same
-# browser the desktop app uses, so web and desktop renders behave
-# identically. Downloading here (not at container start) keeps production
-# startup network-free. This step runs BEFORE the source copy so the ~170MB
-# download layer stays cached across src/ changes.
-RUN node -e "require('@remotion/renderer').ensureBrowser({chromeMode:'chrome-for-testing'}).then(()=>console.log('chrome-for-testing ready'))"
 
 COPY . ./
 
@@ -55,7 +57,7 @@ ENV NODE_ENV=production \
     PORT=3001 \
     PROJECT_DIR=/project \
     OUTPUT_DIR=/renders \
-    CHROME_MODE=chrome-for-testing \
+    BROWSER_EXECUTABLE=/usr/local/bin/chrome-headless-shell \
     HOME=/tmp
 
 USER node
