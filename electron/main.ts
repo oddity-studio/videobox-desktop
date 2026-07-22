@@ -61,6 +61,15 @@ function startRenderServer(): void {
       PROJECT_DIR: root(),
       ASSET_CACHE_DIR: assetCacheDir,
       OUTPUT_DIR: outputDir,
+      // Remotion's compositor (a Rust binary) reads $HOME to locate its
+      // ~/.remotion browser-download cache. A macOS app launched from
+      // Finder/the dmg starts with an empty HOME, so ~/.remotion resolved
+      // to /.remotion and mkdir failed ("ENOENT … mkdir '/.remotion'").
+      // Pin HOME to userData: writable, and the ~150MB browser download
+      // persists there so it only happens once. USERPROFILE covers the
+      // same lookup on Windows.
+      HOME: userData,
+      USERPROFILE: userData,
       // Full Chrome, not headless-shell: headless-shell can't decode H.264,
       // which froze <Video>/<Gif> layers (overlays, fire effects) on a
       // single frame in rendered output.
